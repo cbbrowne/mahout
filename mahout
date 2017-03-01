@@ -1,0 +1,123 @@
+#!/bin/bash
+
+COMMAND=$1
+
+help () {
+     echo "
+mahout: a schema management tool for PostgreSQL
+
+mahout commands:
+ mahout init
+    Initializes a mahout project
+ mahout capture
+    Captures pgcmp files to use for database schema comparisons
+ mahout attach
+    Attaches a particular version label to the present database schema
+ mahout check
+    Checks the version indicated by mahout.conf and checks the schema against
+    that version using pgcmp
+ mahout upgrade
+    Performs an upgrade from the present version to the latest/specified version
+ mahout diff
+    Finds differences between the current version and what is expected
+ mahout slonik
+    Prepares a slonik script to install replication against the latest/specified version
+ mahout history
+    List mahout upgrade activities performed against the local database
+ mahout versions
+    Walk through configuration to get all available versions, and check
+    which have been applied against the database
+ mahout changes
+    List mahout scripts to be applied.
+    List objects that are being changed by the upgrade
+"
+}
+
+function mahout_init () {
+    echo "init Not implemented yet"
+    exit 1    
+}
+
+function mahout_capture () {
+    echo "capture Not implemented yet"
+    exit 1    
+}
+
+function mahout_check () {
+    echo "check Not implemented yet"
+    exit 1    
+}
+
+function mahout_upgrade () {
+    echo "upgrade Not implemented yet"
+    exit 1    
+}
+
+function mahout_diff () {
+    echo "diff Not implemented yet"
+    exit 1    
+}
+
+function mahout_slonik () {
+    echo "slonik Not implemented yet"
+    exit 1    
+}
+
+function mahout_history () {
+    echo "versions Not implemented yet"
+    exit 1    
+}
+
+function mahout_versions () {
+    echo "versions Not implemented yet"
+    exit 1    
+}
+
+function mahout_changes () {
+    echo "changes Not implemented yet"
+    exit 1    
+}
+
+function mahout_slonik () {
+    echo "slonik Not implemented yet"
+    exit 1    
+}
+
+
+case $COMMAND in
+   init)
+       mahout_init
+       ;;
+   capture)
+       mahout_capture
+       ;;
+   attach)
+       mahout_attach
+       ;;
+   check)
+       mahout_check
+       ;;
+   upgrade)
+       mahout_upgrade
+       ;;
+   diff)
+       mahout_diff
+       ;;
+   slonik)
+       mahout_slonik
+       ;;
+   history)
+       mahout_history
+       ;;
+   versions)
+       mahout_versions
+       ;;
+   changes)
+       mahout_changes
+       ;;
+   *)
+       echo "Invalid subcommand - [${COMMAND}]"
+       help
+       exit 2
+       ;;
+esac
