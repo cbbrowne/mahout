@@ -1,6 +1,7 @@
 #!/bin/bash
 
 COMMAND=$1
+MAHOUTHOME=$2
 
 help () {
      echo "
@@ -68,32 +69,36 @@ function mahout_init () {
     MSU=${SUPERUSERACCESS:-${PGDATABASE:-"SUPERUSERACCESSUNSET"}}
     MCL=${CLUSTERDATABASE:-${PGDATABASE:-"CLUSTERDATABASEUNSET"}}
     PGCH=${PGCMPHOME:-"/home/cbbrowne/PostgreSQL/pgcmp"}
-    
-    if [ -e mahout.conf ]; then
-	glog user.err "mahout.conf already exists"
+
+    if [ -d $MAHOUTHOME ]; then
+	glog user.err "Directory [${MAHOUTHOME}] already exists"
+	exit 1
     else
-	MO=${PWD}/mahout.conf
-	echo "mahout: setting up mahout repository in current directory: [${PWD}]"
-	echo "mahout: sample mahout.conf in ${MO}"
-	echo "# Sample mahout file" > ${MO}
-	echo "# MAINDATABASE: Main Database being managed by Mahout" >> ${MO}
-	echo "MAINDATABASE=${MDB}" >> ${MO}
-	echo "# SUPERUSERACCESS: Superuser URI for database being managed by Mahout" >> ${MO}
-	echo "SUPERUSERACCESS=${MSU}" >> ${MO}
-	echo "# CLUSTERDATABASE: URI for central database (e.g. - postgres DB) on cluster being managed by Mahout" >> ${MO}
-	echo "CLUSTERDATABASE=${MCL}" >> ${MO}
-	echo "# PGCMPHOME: location to find pgcmp, pgcmp-dump" >> ${MO}
-	echo "PGCMPHOME=${PGCH}" >> ${MO}
-	for pgm in pgcmp pgcmp-dump; do
-	    if [ -x ${PGCH}/${pgm} ]; then
-		glog user.notice "found ${PGCH}/${pgm} executable OK"
-	    else
-		glog user.err "did not find executable ${PGCH}/${pgm}"
-	    fi
-	done
-	echo "# Add additional configuration parameters for scripts after this" >> ${MO}
+	mkdir $MAHOUTHOME 
     fi
-    MAHOUTCAP=${PWD}/.mahout-data
+    
+    MO=${MAHOUTHOME}/mahout.conf
+    echo "mahout: setting up mahout repository in mahout directory: [${MO}]"
+    echo "mahout: sample mahout.conf in ${MO}"
+    echo "# Sample mahout file" > ${MO}
+    echo "# MAINDATABASE: Main Database being managed by Mahout" >> ${MO}
+    echo "MAINDATABASE=${MDB}" >> ${MO}
+    echo "# SUPERUSERACCESS: Superuser URI for database being managed by Mahout" >> ${MO}
+    echo "SUPERUSERACCESS=${MSU}" >> ${MO}
+    echo "# CLUSTERDATABASE: URI for central database (e.g. - postgres DB) on cluster being managed by Mahout" >> ${MO}
+    echo "CLUSTERDATABASE=${MCL}" >> ${MO}
+    echo "# PGCMPHOME: location to find pgcmp, pgcmp-dump" >> ${MO}
+    echo "PGCMPHOME=${PGCH}" >> ${MO}
+    for pgm in pgcmp pgcmp-dump; do
+	if [ -x ${PGCH}/${pgm} ]; then
+	    glog user.notice "found ${PGCH}/${pgm} executable OK"
+	else
+	    glog user.err "did not find executable ${PGCH}/${pgm}"
+	fi
+    done
+    echo "# Add additional configuration parameters for scripts after this" >> ${MO}
+
+    MAHOUTCAP=${MAHOUTHOME}/.mahout-data
     if [ -d ${MAHOUTCAP} ]; then
 	glog user.err "Capture directory MAHOUTCAP [${MAHOUTCAP}] already exists"
 	exit 1
@@ -101,12 +106,14 @@ function mahout_init () {
 	mkdir ${MAHOUTCAP}
 	glog user.notice "Setting up directory MAHOUTCAP [${MAHOUTCAP}]"
     fi
-    MAHOUTCTL=${PWD}/mahout.control
+    MAHOUTCTL=${MAHOUTHOME}/mahout.control
     if [ -e ${MAHOUTCTL} ]; then
 	glog user.err "Control file MAHOUTCTL=[${MAHOUTCTL}] already exists"
     else
 	echo "# Initialized mahout.control" > ${MAHOUTCTL}
 	echo "# add sections after this to indicate versions" >> ${MAHOUTCTL}
+	echo "version Base"  >> ${MAHOUTCTL}
+	echo "psql Base/base-schema.sql"  >> ${MAHOUTCTL}
     fi
     case $PROBLEMS in
 	0)
@@ -116,6 +123,12 @@ function mahout_init () {
 	    glog user.notice "mahout init encountered ${PROBLEMS} serious configuration problems"
 	    ;;
     esac
+
+    mkdir $MAHOUTHOME/Base
+    glog user.notice "Dumping database ${MDB} to Base/base-schema.sql"
+    pg_dump -d ${MDB} -s > $MAHOUTHOME/Base/base-schema.sql
+    glog user.notice "mahout: initial control file set up indicating schema from ${MDB} as schema"
+
     glog user.notice "mahout: please edit ${MO} to validate configuration parameters"
 }
 
