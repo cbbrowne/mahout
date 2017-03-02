@@ -33,9 +33,90 @@ mahout commands:
 "
 }
 
+NOTICES=0
+WARNINGS=0
+PROBLEMS=0
+
+function glog () {
+    local level=$1
+    local notice=$2
+    logger -i -p "${level}" -t "mahout" "${notice}"
+    echo "${level} mahout ${notice}"
+    case ${level} in
+	user.notice)
+	    NOTICES=$((${NOTICES} + 1))
+	    ;;
+	user.warning)
+	    WARNINGS=$((${WARNINGS} + 1))
+	    ;;
+	user.err)
+	    PROBLEMS=$((${PROBLEMS} + 1))
+	    ;;
+    esac	    
+}
+
 function mahout_init () {
-    echo "init Not implemented yet"
-    exit 1    
+    local problems=0
+    local MO
+    local MDB
+    local MSU
+    local MCL
+    local PGCH
+    local PGCD
+    local PGCC
+    MDB=${MAINDATABASE:-${PGDATABASE:-"PGDATABASEUNSET"}}
+    MSU=${SUPERUSERACCESS:-${PGDATABASE:-"SUPERUSERACCESSUNSET"}}
+    MCL=${CLUSTERDATABASE:-${PGDATABASE:-"CLUSTERDATABASEUNSET"}}
+    PGCH=${PGCMPHOME:-"/home/cbbrowne/PostgreSQL/pgcmp"}
+    
+    if [ -e mahout.conf ]; then
+	glog user.err "mahout.conf already exists"
+    else
+	MO=${PWD}/mahout.conf
+	echo "mahout: setting up mahout repository in current directory: [${PWD}]"
+	echo "mahout: sample mahout.conf in ${MO}"
+	echo "# Sample mahout file" > ${MO}
+	echo "# MAINDATABASE: Main Database being managed by Mahout" >> ${MO}
+	echo "MAINDATABASE=${MDB}" >> ${MO}
+	echo "# SUPERUSERACCESS: Superuser URI for database being managed by Mahout" >> ${MO}
+	echo "SUPERUSERACCESS=${MSU}" >> ${MO}
+	echo "# CLUSTERDATABASE: URI for central database (e.g. - postgres DB) on cluster being managed by Mahout" >> ${MO}
+	echo "CLUSTERDATABASE=${MCL}" >> ${MO}
+	echo "# PGCMPHOME: location to find pgcmp, pgcmp-dump" >> ${MO}
+	echo "PGCMPHOME=${PGCH}" >> ${MO}
+	for pgm in pgcmp pgcmp-dump; do
+	    if [ -x ${PGCH}/${pgm} ]; then
+		glog user.notice "found ${PGCH}/${pgm} executable OK"
+	    else
+		glog user.err "did not find executable ${PGCH}/${pgm}"
+	    fi
+	done
+	echo "# Add additional configuration parameters for scripts after this" >> ${MO}
+    fi
+    MAHOUTCAP=${PWD}/.mahout-data
+    if [ -d ${MAHOUTCAP} ]; then
+	glog user.err "Capture directory MAHOUTCAP [${MAHOUTCAP}] already exists"
+	exit 1
+    else
+	mkdir ${MAHOUTCAP}
+	glog user.notice "Setting up directory MAHOUTCAP [${MAHOUTCAP}]"
+    fi
+    MAHOUTCTL=${PWD}/mahout.control
+    if [ -e ${MAHOUTCTL} ]; then
+	glog user.err "Control file MAHOUTCTL=[${MAHOUTCTL}] already exists"
+    else
+	echo "# Initialized mahout.control" > ${MAHOUTCTL}
+	echo "# add sections after this to indicate versions" >> ${MAHOUTCTL}
+    fi
+    case $PROBLEMS in
+	0)
+	    glog user.notice "mahout init complete: no serious configuration problems noticed"
+	    ;;
+	*)
+	    glog user.notice "mahout init encountered ${PROBLEMS} serious configuration problems"
+	    ;;
+    esac
+    glog user.notice "mahout: please edit ${MO} to validate configuration parameters"
 }
 
 function mahout_capture () {
