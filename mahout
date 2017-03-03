@@ -1,7 +1,10 @@
 #!/bin/bash
 
-COMMAND=$1
-MAHOUTHOME=$2
+SUBCOMMAND=$1
+PARM1=$2
+PARM2=$3
+
+MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS:-${PGCOMITSCHEMAS:-"('pg_catalog','information_schema')"}}
 
 help () {
      echo "
@@ -37,12 +40,17 @@ mahout commands:
 NOTICES=0
 WARNINGS=0
 PROBLEMS=0
+MAHOUTLOG=.mahout-log
 
 function glog () {
     local level=$1
     local notice=$2
     logger -i -p "${level}" -t "mahout" "${notice}"
     echo "${level} mahout ${notice}"
+    if [ -d ${MAHOUTLOG} ]; then
+	when=`date --rfc-3339=seconds`
+	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}/mahout.log
+    fi
     case ${level} in
 	user.notice)
 	    NOTICES=$((${NOTICES} + 1))
@@ -57,6 +65,7 @@ function glog () {
 }
 
 function mahout_init () {
+    local MAHOUTHOME=$1
     local problems=0
     local MO
     local MDB
@@ -71,7 +80,7 @@ function mahout_init () {
     PGCH=${PGCMPHOME:-"/home/cbbrowne/PostgreSQL/pgcmp"}
 
     if [ -d $MAHOUTHOME ]; then
-	glog user.err "Directory [${MAHOUTHOME}] already exists"
+	glog user.err "Directory [${MAHOUTHOME}] already exists - aborting"
 	exit 1
     else
 	mkdir $MAHOUTHOME 
@@ -88,6 +97,8 @@ function mahout_init () {
     echo "# CLUSTERDATABASE: URI for central database (e.g. - postgres DB) on cluster being managed by Mahout" >> ${MO}
     echo "CLUSTERDATABASE=${MCL}" >> ${MO}
     echo "# PGCMPHOME: location to find pgcmp, pgcmp-dump" >> ${MO}
+    echo "# MAHOUTOMITSCHEMAS: set of schemas to ignore for comparisons" >> ${MO}
+    echo "MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS}" >> ${MO}
     echo "PGCMPHOME=${PGCH}" >> ${MO}
     for pgm in pgcmp pgcmp-dump; do
 	if [ -x ${PGCH}/${pgm} ]; then
@@ -98,6 +109,9 @@ function mahout_init () {
     done
     echo "# Add additional configuration parameters for scripts after this" >> ${MO}
 
+    MAHOUTLOG=${MAHOUTHOME}/.mahout-logs
+    mkdir ${MAHOUTLOG}
+    
     MAHOUTCAP=${MAHOUTHOME}/.mahout-data
     if [ -d ${MAHOUTCAP} ]; then
 	glog user.err "Capture directory MAHOUTCAP [${MAHOUTCAP}] already exists"
@@ -106,6 +120,9 @@ function mahout_init () {
 	mkdir ${MAHOUTCAP}
 	glog user.notice "Setting up directory MAHOUTCAP [${MAHOUTCAP}]"
     fi
+    MAHOUTTMP=${MAHOUTHOME}/.mahout-temp
+    mkdir ${MAHOUTTMP}
+    
     MAHOUTCTL=${MAHOUTHOME}/mahout.control
     if [ -e ${MAHOUTCTL} ]; then
 	glog user.err "Control file MAHOUTCTL=[${MAHOUTCTL}] already exists"
@@ -128,10 +145,50 @@ function mahout_init () {
     glog user.notice "Dumping database ${MDB} to Base/base-schema.sql"
     pg_dump -d ${MDB} -s > $MAHOUTHOME/Base/base-schema.sql
     glog user.notice "mahout: initial control file set up indicating schema from ${MDB} as schema"
-
     glog user.notice "mahout: please edit ${MO} to validate configuration parameters"
+
+    echo "begin;  create schema if not exists \"_mahout\";  set search_path to \"_mahout\";
+    create table if not exists changelog_lock (id serial primary key, locked boolean not null, lock_granted timestamptz, lockedby text);
+    create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
+    create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
+  delete from version_log;
+  delete from action_log;
+  insert into version_log (version, install_start, install_end)
+     select 'Base', now(), clock_timestamp();
+  insert into action_log (action_start, action_end, action, version, action_type, action_source, action_md5, result, success)
+  select now(), clock_timestamp(), 'Initialize Base Schema', 'Base', 'initialize', 'mahout tool', NULL::text, 'completed', 't'::boolean;
+  commit; " > ${MAHOUTTMP}/setup-mahout-schema.sql
+
+    psql -d ${MDB} -f ${MAHOUTTMP}/setup-mahout-schema.sql > /dev/null 2>&1
+    retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.err "Unable to setup mahout schema in database [${MDB}]"
+	exit 1
+    else
+	glog user.notice "Setup mahout schema in database [${MDB}]"
+    fi
+    
+    # And capture the pgcmp output as .mahout-data/Base.pgcmp
+    # Set up parms:
+    # PGURI
+    # PGCOMITSCHEMAS
+    # PGCLABEL=Base
+    glog user.notice "Dump Base schema data via pgcmp"
+    BASEPGCMP=${MAHOUTHOME}/.mahout-data/Base.pgcmp
+    PGCLABEL=Base PGURI=${MDB} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${BASEPGCMP} ${PGCH}/pgcmp-dump > /dev/null
+    rc=$?
+    if [ $rc -ne 0 ]; then
+	glog user.err "Failure to use pgcmp to dump base schema - rc=[${rc}]"
+    else
+	glog user.notice "Dumped Base schema pgcmp data to ${BASEPGCMP}"
+    fi
 }
 
+## Usual activity...
+#   delete from _mahout.changelog_lock;
+#    insert into _mahout.changelog_lock (locked, lock_granted, locked_by) values ('true', now(), 'requesting user metadata');
+#   [DO STUFF]
+#   then release the lock by changing LOCKED to false, then trim
 function mahout_capture () {
     echo "capture Not implemented yet"
     exit 1    
@@ -178,9 +235,9 @@ function mahout_slonik () {
 }
 
 
-case $COMMAND in
+case $SUBCOMMAND in
    init)
-       mahout_init
+       mahout_init ${PARM1} ${PARM2}
        ;;
    capture)
        mahout_capture
