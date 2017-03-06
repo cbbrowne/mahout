@@ -96,6 +96,14 @@ function mahout_init () {
     echo "SUPERUSERACCESS=${MSU}" >> ${MO}
     echo "# CLUSTERDATABASE: URI for central database (e.g. - postgres DB) on cluster being managed by Mahout" >> ${MO}
     echo "CLUSTERDATABASE=${MCL}" >> ${MO}
+
+    if [ "${MSU}" == "${MDB}" ]; then
+	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Superuser connection (SUPERUSERACCESS=[${MSU}]"
+    fi
+    if [ "${MCL}" == "${MDB}" ]; then
+	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Cluster connection (CLUSTERDATABASE=[${MCL}]"
+    fi
+    
     echo "# PGCMPHOME: location to find pgcmp, pgcmp-dump" >> ${MO}
     echo "# MAHOUTOMITSCHEMAS: set of schemas to ignore for comparisons" >> ${MO}
     echo "MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS}" >> ${MO}
@@ -189,6 +197,84 @@ function mahout_init () {
 #    insert into _mahout.changelog_lock (locked, lock_granted, locked_by) values ('true', now(), 'requesting user metadata');
 #   [DO STUFF]
 #   then release the lock by changing LOCKED to false, then trim
+
+function mahout_validate_control () {
+    local CTL=${PWD}/mahout.control
+    glog user.notice "mahout validate_control: validating control file [${CTL}]"
+    if [ -e ${CTL} ]; then
+	glog user.notice "Found [${CTL}]"
+	local dropcomments=`mktemp /tmp/mahout-ctl-check.sanscomments.XXXXXXXXXXX`
+	local dropwhitespace=`mktemp /tmp/mahout-ctl-check.sanswhitespace.XXXXXXXXXXX`
+	local badlines=`mktemp /tmp/mahout-ctl-check.badlines.XXXXXXXXXXX`
+	local psqlscripts=`mktemp /tmp/mahout-ctl-check.psql.XXXXXXXXXXX`
+	local shellscripts=`mktemp /tmp/mahout-ctl-check.shellscripts.XXXXXXXXXXX`
+	cut -d \# -f 1 < ${CTL} > ${dropcomments}
+	sed "s/^[ \t]*//" < ${dropcomments} | sed "s/[ \t]*$//" > ${dropwhitespace}
+	
+	egrep -n -v "^(version|psql|common tests|psqltest|requires|superuser|shell)[ ]*" ${dropwhitespace} | egrep -v "^[0-9]+:$" > ${badlines}
+	NUMBAD=`cat ${badlines} | wc -l`
+	if [[ ${NUMBAD} -gt 0 ]]; then
+	    glog user.err "Found ${NUMBAD} ill-formatted lines"
+	    cat ${badlines}
+	    exit 1
+	fi
+	# check that psql lines refer to files that actually exist
+        egrep -n "^psql " ${dropwhitespace} > ${psqlscripts}
+	local line
+	while read line
+	do
+	    lineno=`echo ${line} | cut -d : -f 1`
+	    pfilename=`echo ${line} | sed 's/^[0-9]*: *psql[ \t]*//'`
+	    if [ -e ${pfilename} ]; then
+		glog user.notice "psql file ${pfilename} on line ${lineno} exists"
+	    else
+		glog user.err "psql file ${pfilename} on line ${lineno} does not exist"
+	    fi
+	done < ${psqlscripts}
+
+	# check that shell lines refer to files that actually exist
+        egrep -n "^shell " ${dropwhitespace} > ${shellscripts}
+	local line
+	while read line
+	do
+	    lineno=`echo ${line} | cut -d : -f 1`
+	    pfilename=`echo ${line} | sed 's/^[0-9]*: *shell[ \t]*//'`
+	    if [ -e ${pfilename} ]; then
+		glog user.notice "shell file ${pfilename} on line ${lineno} exists"
+	    else
+		glog user.err "shell file ${pfilename} on line ${lineno} does not exist"
+	    fi
+	done < ${shellscripts}
+	
+	# check that all requires point to valid versions
+	local vfile=`mktemp /tmp/mahout-ctl-check.versions.XXXXXXXXXXX`
+	local rfile=`mktemp /tmp/mahout-ctl-check.requires.XXXXXXXXXXX`
+	egrep -n "^version" ${dropwhitespace} > ${vfile}
+	egrep -n "^requires" ${dropwhitespace} > ${rfile}
+	
+	while read line
+	do
+	    lineno=`echo ${line} | cut -d : -f 1`
+	    required=`echo ${line} | sed 's/^[0-9]*: *requires[ \t]*//'`
+	    requiredver=`egrep "^[0-9]*:version[ \t]*${required}\$" ${vfile}`
+	    if [ "${requiredver}" != "" ]; then
+		glog user.notice "Line ${lineno} wants version ${required}, found as ${requiredver}"
+	    else
+		glog user.err "Line ${lineno} wants version ${required}, not found"
+	    fi
+	done < ${rfile}
+	
+	# check that there are no loops
+	# Assemble dependencies, run through tsort
+	
+	rm -f ${shortened} ${dropcomments} ${dropwhitespace} ${badlines} ${psqlscripts} ${badlines} ${vfile} ${rfile} ${shellscripts}
+			    
+    else
+	glog user.err "Control file [${CTL}] not found"
+	exit 1
+    fi
+}
+
 function mahout_capture () {
     echo "capture Not implemented yet"
     exit 1    
@@ -265,6 +351,9 @@ case $SUBCOMMAND in
        ;;
    changes)
        mahout_changes
+       ;;
+   validate_control)
+       mahout_validate_control
        ;;
    *)
        echo "Invalid subcommand - [${COMMAND}]"

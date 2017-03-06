@@ -36,12 +36,14 @@ expect the tool to be used:
     - mahout upgrade
 
 ** Mahout subcommands
- - ~mahout init~ :: Checks that it is safe to do so (e.g. - no pre-existing config files)
+ - ~mahout init directoryname~ :: Checks that it is safe to do so (e.g. - no pre-existing config files)
+   - creates the directory afresh
    - Initializes a Mahout project
    - Usually to be done by developers
    - Establishes ~mahout.conf~ containing URI based on user environment
    - Creates directory ~base~ as the starting point
-   - Runs ~pg_dump~ to write current schema to ~base~
+   - Runs ~pg_dump~ to write current schema to ~Base~
+   - Runs ~pgcmp-dump~ to capture the state of ~Base~ as ~.mahout-data/Base.pgcmp~ 
  - ~mahout capture~ :: This step is intended to capture ~.pgcmp~ files.
       It does an install of a specified version, and captures the
       schema into ~.pgcmp.version~.  It should also capture checksums
