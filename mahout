@@ -37,6 +37,7 @@ mahout commands:
 "
 }
 
+DEBUGS=0
 NOTICES=0
 WARNINGS=0
 PROBLEMS=0
@@ -44,9 +45,16 @@ MAHOUTLOG=.mahout-log
 
 function glog () {
     local level=$1
-    local notice=$2
+    local notice=$2 
     logger -i -p "${level}" -t "mahout" "${notice}"
-    echo "${level} mahout ${notice}"
+    case ${level} in
+	user.debug)
+	    DEBUGS=$((${DEBUGS} + 1))
+  	    ;;
+	*)
+	    echo "${level} mahout ${notice}"
+	    ;;
+    esac
     if [ -d ${MAHOUTLOG} ]; then
 	when=`date --rfc-3339=seconds`
 	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}/mahout.log
@@ -76,8 +84,9 @@ function mahout_init () {
     local PGCC
     MDB=${MAINDATABASE:-${PGDATABASE:-"PGDATABASEUNSET"}}
     MSU=${SUPERUSERACCESS:-${PGDATABASE:-"SUPERUSERACCESSUNSET"}}
-    MCL=${CLUSTERDATABASE:-${PGDATABASE:-"CLUSTERDATABASEUNSET"}}
+    MCL=${COMPARISONDATABASE:-${PGDATABASE:-"COMPARISONDATABASEUNSET"}}
     PGCH=${PGCMPHOME:-"/home/cbbrowne/PostgreSQL/pgcmp"}
+    MHSCH=${MAHOUTSCHEMA:-"Mahout"}
 
     if [ -d $MAHOUTHOME ]; then
 	glog user.error "Directory [${MAHOUTHOME}] already exists - aborting"
@@ -94,20 +103,23 @@ function mahout_init () {
     echo "MAINDATABASE=${MDB}" >> ${MO}
     echo "# SUPERUSERACCESS: Superuser URI for database being managed by Mahout" >> ${MO}
     echo "SUPERUSERACCESS=${MSU}" >> ${MO}
-    echo "# CLUSTERDATABASE: URI for central database (e.g. - postgres DB) on cluster being managed by Mahout" >> ${MO}
-    echo "CLUSTERDATABASE=${MCL}" >> ${MO}
+    echo "# COMPARISONDATABASE: URI for comparison database to be used for comparisons" >> ${MO}
+    echo "COMPARISONDATABASE=${MCL}" >> ${MO}
 
     if [ "${MSU}" == "${MDB}" ]; then
 	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Superuser connection (SUPERUSERACCESS=[${MSU}]"
     fi
     if [ "${MCL}" == "${MDB}" ]; then
-	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Cluster connection (CLUSTERDATABASE=[${MCL}]"
+	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Cluster connection (COMPARISONDATABASE=[${MCL}]"
     fi
     
-    echo "# PGCMPHOME: location to find pgcmp, pgcmp-dump" >> ${MO}
     echo "# MAHOUTOMITSCHEMAS: set of schemas to ignore for comparisons" >> ${MO}
     echo "MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS}" >> ${MO}
+    echo "# PGCMPHOME: location to find pgcmp, pgcmp-dump" >> ${MO}
     echo "PGCMPHOME=${PGCH}" >> ${MO}
+    echo "# MAHOUTSCHEMA: which schema to use for Mahout database objects" >> ${MO}
+    echo "MAHOUTSCHEMA=${MHSCH}" >> ${MO}				      
+
     for pgm in pgcmp pgcmp-dump; do
 	if [ -x ${PGCH}/${pgm} ]; then
 	    glog user.notice "found ${PGCH}/${pgm} executable OK"
@@ -152,10 +164,13 @@ function mahout_init () {
     mkdir $MAHOUTHOME/Base
     glog user.notice "Dumping database ${MDB} to Base/base-schema.sql"
     pg_dump -d ${MDB} -s > $MAHOUTHOME/Base/base-schema.sql
+    md5sum $MAHOUTHOME/Base/base-schema.sql > $MAHOUTHOME/Base/.base-schema.sql.md5sum
+    checksum=`cat $MAHOUTHOME/Base/.base-schema.sql.md5sum`
     glog user.notice "mahout: initial control file set up indicating schema from ${MDB} as schema"
+    glog user.notice "mahout: base schema set up with checksum [${checksum}]"
     glog user.notice "mahout: please edit ${MO} to validate configuration parameters"
 
-    echo "begin;  create schema if not exists \"_mahout\";  set search_path to \"_mahout\";
+    echo "begin;  create schema if not exists \"${MHSCH}\";  set search_path to \"${MHSCH}\";
     create table if not exists changelog_lock (id serial primary key, locked boolean not null, lock_granted timestamptz, lockedby text);
     create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
     create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
@@ -191,12 +206,6 @@ function mahout_init () {
 	glog user.notice "Dumped Base schema pgcmp data to ${BASEPGCMP}"
     fi
 }
-
-## Usual activity...
-#   delete from _mahout.changelog_lock;
-#    insert into _mahout.changelog_lock (locked, lock_granted, locked_by) values ('true', now(), 'requesting user metadata');
-#   [DO STUFF]
-#   then release the lock by changing LOCKED to false, then trim
 
 function validate_control () {
     local CTL=${PWD}/mahout.control
@@ -307,22 +316,127 @@ function validate_control () {
     fi
 }
 
+function in_mahout_home () {
+    # see if we're in a Mahout directory
+    local PSTART
+    PSTART=${PROBLEMS}
+    if [ -e mahout.control ]; then
+	glog user.debug "found mahout.control"
+    else
+	glog user.error "mahout.control not found"
+    fi
+    if [ -e mahout.conf ]; then
+	glog user.debug "found mahout.conf"
+    else
+	glog user.error "mahout.conf not found"
+    fi
+    if [ -d .mahout-data ]; then
+	glog user.debug "found .mahout-data directory"
+    else
+	glog user.error ".mahout-data directory not found"
+    fi
+    if [ -d .mahout-logs ]; then
+	glog user.debug "found .mahout-logs directory"
+    else
+	glog user.error ".mahout-logs directory not found"
+    fi
+    glog user.debug "PSTART: ${PSTART} PROBLEMS: ${PROBLEMS}"
+    if [[ ${PSTART} -ne ${PROBLEMS} ]]; then
+	glog user.error "mahout directory not properly set up"
+	echo "1"
+    else
+	echo "0"
+    fi	
+}
+
 function mahout_capture () {
-    echo "capture Not implemented yet"
+    # check that we're in a Mahout directory
+    local INMAHOUT
+    INMAHOUT=`in_mahout_home`
+    glog user.notice "inmahout provided ${INMAHOUT}"
+    if [[ ${INMAHOUT} != 0 ]]; then
+	glog user.error "capture: not in mahout directory - ${INMAHOUT}"
+	exit 1
+    fi
+    
+    # acquire configuration from mahout.conf
+    source mahout.conf
+    
+    # check the version in the database
+    local DBVERSIONQ="select version from \"${MAHOUTSCHEMA}\".version_log order by install_end desc limit 1;"
+    local DBVERSION=`psql -d ${MAINDATABASE} -qAt -c "${DBVERSIONQ}"`
+    glog user.notice "capture: found version: ${DBVERSION}"
+
+    # Use pgcmp to check that the version in the database
+    # matches... Note that it should match EXACTLY; this is not a
+    # production application
+    local CAPTUREFILE
+    CAPTUREFILE=`mktemp /tmp/mahout-capture-base.XXXXXXXXXXXX`
+    PGCLABEL=capturedb PGURI=${MAINDATABASE} PGCMPOUTPUT=${CAPTUREFILE} ${PGCMPHOME}/pgcmp-dump > /dev/null
+    rc=$?
+    if [ $rc -ne 0 ]; then
+	glog user.error "Failure to use pgcmp to dump base schema for capture DB - rc=[${rc}]"
+    else
+	glog user.notice "Dumped pgcmp data to ${CAPTUREFILE}"
+    fi
+
+    # we should compare against the pgcmp dump
+    local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
+    if [ -e ${VERSIONDUMP} ]; then
+	glog user.notice "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
+	PGURI=${COMPAREURI} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+	rc=$?
+	case $rc in
+	    2)
+		glog user.error "Unable to run pgcmp comparison"
+		;;
+	    3)
+		glog user.error "pgcmp ran, some items did not match between database and version ${DBVERSION}"
+		;;
+	    0)
+		glog user.notice "pgcmp completed, all matched - rc=${rc}"
+		;;
+	esac
+    else
+	glog user.error "Failed to find pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
+	exit 1
+    fi
+    
+    # then, go through each version that is NOT applied (run tsort to get the sequence)
+    #   apply the scripts indicated in the control file for the version
+    #   capture pgcmp-dump data for the version
+    # Optional version label parameter allows stopping at that version
+    #  e.g. - mahout capture v3.2 would stop at v3.2
+
+    
+   
+    echo "capture Not fully implemented yet"
     exit 1    
 }
 
 function mahout_check () {
+    # Compares the schema to what is indicated by pgcmp
+    # Also check md5 checksums on /all/ scripts
+    # pgcmp can have a set of acceptable differences...
     echo "check Not implemented yet"
     exit 1    
 }
 
+## Usual activity...
+#   delete from _mahout.changelog_lock;
+#    insert into _mahout.changelog_lock (locked, lock_granted, locked_by) values ('true', now(), 'requesting user metadata');
+#   [DO STUFF]
+#   then release the lock by changing LOCKED to false, then trim
+
 function mahout_upgrade () {
+    # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
     echo "upgrade Not implemented yet"
     exit 1    
 }
 
 function mahout_diff () {
+    # use pgcmp to compare current schema in database against what is supposed to be there
+    # This might be a good way of generating expected differences...
     echo "diff Not implemented yet"
     exit 1    
 }
