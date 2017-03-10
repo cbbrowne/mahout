@@ -435,7 +435,7 @@ function mahout_capture () {
     local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
     if [ -e ${VERSIONDUMP} ]; then
 	glog user.notice "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
-	PGURI=${COMPAREURI} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+	PGURI=${COMPAREURI} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
 	rc=$?
 	case $rc in
 	    2)
