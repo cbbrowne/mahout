@@ -110,7 +110,7 @@ function mahout_init () {
 	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Superuser connection (SUPERUSERACCESS=[${MSU}]"
     fi
     if [ "${MCL}" == "${MDB}" ]; then
-	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Cluster connection (COMPARISONDATABASE=[${MCL}]"
+	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Comparison connection (COMPARISONDATABASE=[${MCL}]"
     fi
     
     echo "# MAHOUTOMITSCHEMAS: set of schemas to ignore for comparisons" >> ${MO}
@@ -207,6 +207,78 @@ function mahout_init () {
     fi
 }
 
+function split_versions () {
+    local versioncontent=$1
+    local sanswhitecomments
+    local cversion
+
+    sanswhitecomments=`mktemp /tmp/mahout-split-versions.XXXXXXXXXXXXX`
+    cut -d \# -f 1 < mahout.control | \
+	sed "s/^[ \t]*//" | \
+	sed "s/[ \t]*$//" | \
+	sed "s/[\t]/ /g" | \
+	sed "s/  / /g"           > ${sanswhitecomments}
+						  
+    cversion="InvalidUntilVersionEstablished"
+
+    while read line
+    do
+	# if we get a new version, then change version files
+	if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
+	    cversion=`echo $line | cut -d " " -f 2`;
+	fi
+	
+	case ${cversion} in
+	    InvalidUntilVersionEstablished)
+		echo "line preceding first version" > /dev/null
+		;;
+	    *)
+		echo ${line} >> ${versioncontent}/${cversion}
+		;;
+	esac
+    done < ${sanswhitecomments}
+
+    rm -f ${sanswhitecomments}
+}
+
+
+# Generate version ordering
+function calculate_dependencies () {
+    local dependencies=$2
+    local versionorder=$3
+    glog user.notice "calculate_dependencies (${depfodder},${dependencies},${versionorder})"
+    
+    local dropcomments=`mktemp /tmp/mahout-version-ordering.sanscomments.XXXXXXXXXXX`
+    local dropwhitespace=`mktemp /tmp/mahout-version-ordering.sanswhitespace.XXXXXXXXXXX`
+    cut -d \# -f 1 < mahout.control > ${dropcomments}
+    sed "s/^[ \t]*//" < ${dropcomments} | sed "s/[ \t]*$//" > ${dropwhitespace}
+    
+    egrep -n "^(version|requires)" ${dropwhitespace} > ${depfodder}
+    local dversion
+    local drequires
+    while read line
+    do
+	if [ $(echo "${line}" | egrep -c "^[0-9]+:version") -eq 1 ]; then
+	    dversion=`echo ${line} | cut -d : -f 2 | sed "s/^version //"`
+	    echo "found version: ${dversion}"
+	fi
+	if [ $(echo "${line}" | egrep -c "^[0-9]+:requires") -eq 1 ]; then
+	    drequires=`echo ${line} | cut -d : -f 2 | sed "s/^requires[ \t]//"`
+	    echo "${drequires} ${dversion}" >> ${dependencies}
+	    echo "found requires: ${drequires}"
+	fi
+    done < ${depfodder}
+    glog user.notice "Generated dependency list: ${dependencies}"
+    tsort ${dependencies} > ${versionorder}
+    retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Dependency cycle found - see [${dependencies}]"
+    else
+	glog user.notice "Dependencies checked, no cycles found OK"
+    fi
+    rm -f ${dropcomments} ${dropwhitespace}
+}
+
 function validate_control () {
     local CTL=${PWD}/mahout.control
     glog user.notice "validate_control: validating control file [${CTL}]"
@@ -277,33 +349,10 @@ function validate_control () {
 	# Assemble dependencies, run through tsort
 	local depfodder=`mktemp /tmp/mahout-ctl-check-dependency-fodder.XXXXXXXXXXXX`
 	local dependencies=`mktemp /tmp/mahout-ctl-check-dependencies.XXXXXXXXXXXX`
-	egrep -n "^(version|requires)" ${dropwhitespace} > ${depfodder}
-	local dversion
-	local drequires
-	while read line
-	do
-	    if [ $(echo "${line}" | egrep -c "^[0-9]+:version") -eq 1 ]; then
-		dversion=`echo ${line} | cut -d : -f 2 | sed "s/^version //"`
-		echo "found version: ${dversion}"
-	    fi
-	    if [ $(echo "${line}" | egrep -c "^[0-9]+:requires") -eq 1 ]; then
-		drequires=`echo ${line} | cut -d : -f 2 | sed "s/^requires[ \t]//"`
-		echo "${drequires} ${dversion}" >> ${dependencies}
-		echo "found requires: ${drequires}"
-	    fi
-	done < ${depfodder}
-	glog user.notice "Generated dependency list: ${dependencies}"
 	local versionorder=`mktemp /tmp/mahout-ctl-check-versionorder.XXXXXXXXXXXX`
-	tsort ${dependencies} > ${versionorder}
-	retcode=$?
-	if [ $retcode -ne 0 ]; then
-	    glog user.error "Dependency cycle found - see [${dependencies}]"
-	else
-	    glog user.notice "Dependencies checked, no cycles found OK"
-#	    rm ${dependencies}
-	fi
+	calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
 	
-	rm -f ${shortened} ${dropcomments} ${dropwhitespace} ${badlines} ${psqlscripts} ${badlines} ${vfile} ${rfile} ${shellscripts} ${depfodder} ${versionorder}
+	rm -f ${shortened} ${dropcomments} ${dropwhitespace} ${badlines} ${psqlscripts} ${badlines} ${vfile} ${rfile} ${shellscripts}  ${versionorder} ${depfodder}
     else
 	glog user.error "Control file [${CTL}] not found"
 	exit 1
@@ -352,6 +401,8 @@ function in_mahout_home () {
 function mahout_capture () {
     # check that we're in a Mahout directory
     local INMAHOUT
+    local PGCMPOUTPUT
+    
     INMAHOUT=`in_mahout_home`
     glog user.notice "inmahout provided ${INMAHOUT}"
     if [[ ${INMAHOUT} != 0 ]]; then
@@ -402,22 +453,124 @@ function mahout_capture () {
 	exit 1
     fi
     
-    # then, go through each version that is NOT applied (run tsort to get the sequence)
-    #   apply the scripts indicated in the control file for the version
-    #   capture pgcmp-dump data for the version
-    # Optional version label parameter allows stopping at that version
-    #  e.g. - mahout capture v3.2 would stop at v3.2
+    local depfodder=`mktemp /tmp/mahout-capture-dependency-fodder.XXXXXXXXXXXX`
+    local dependencies=`mktemp /tmp/mahout-capture-dependencies.XXXXXXXXXXXX`
+    local versionorder=`mktemp /tmp/mahout-capture-version-order.XXXXXXXXXXXX`
+    local versioncontent=`mktemp -d /tmp/mahout-capture-version-content.XXXXXXXXXXXX`
+    calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
+    glog user.notice "calced dependencies"
 
-    
-   
+    split_versions ${versioncontent}
+
+    versionswanted=false
+    for propversion in `cat ${versionorder}`; do
+	if [[ $propversion == ${DBVERSION} ]]; then
+	    # We have reached the point at which versions should get captured
+	    versionswanted=true
+	else
+	    if [[ $versionswanted == "true" ]]; then
+		# need to apply scripts to the database
+		glog user.notice "Applying scripts for version ${propversion}"
+		psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', now());"
+		retcode=$?
+		if [ $retcode -ne 0 ]; then
+		    glog user.error "Unable to set up version log for version [${propversion}] in database [${MDB}]"
+		    exit 1
+		else
+		    glog user.notice "Begin load of version [${propversion}] to database [${MAINDATABASE}]"
+		fi
+		
+		glog user.notice "From script ${versioncontent}/${propversion}"
+		while read line
+		do
+		    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
+			echo "doing nothing about version line"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
+  		        echo "doing nothing about requires line"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
+			local sqlscript=`echo ${line} | cut -d " " -f 2`
+			glog user.notice "apply SQL Script ${sqlscript}"
+			md5sum=`md5sum < ${sqlscript}`
+			psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', now(), 'capture', 'psql script', '${sqlscript}', '${md5sum}');"
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "Unable to set up action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
+			    exit 1
+			fi
+			psql -d ${MAINDATABASE} -f ${sqlscript} --single-transaction
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
+			    psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='f', action_end=now() where version='${propversion}' and action='capture' and action_type='psql script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_log is null;"
+			    exit 1
+			fi
+			psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='t', action_end=now() where version='${propversion}' and action='capture' and action_type='psql script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_log is null;"
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "Unable to mark completion in action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
+			    exit 1
+			fi
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
+			local sqlscript=`echo ${line} | cut -d " " -f 2`
+			echo "apply SQL Superuser Script ${sqlscript}"
+			md5sum=`md5sum < ${sqlscript}`
+			psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', now(), 'capture', 'psql superuser script', '${sqlscript}', '${md5sum}');"
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "Unable to set up action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
+			    exit 1
+			fi
+			psql -d ${SUPERUSERACCESS} -f ${sqlscript} --single-transaction
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
+			    psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='f', action_end=now() where version='${propversion}' and action='capture' and action_type='psql script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_log is null;"
+			    exit 1
+			fi
+			psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='t', action_end=now() where version='${propversion}' and action='capture' and action_type='psql superuser script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_log is null;"
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "Unable to mark completion in action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
+			    exit 1
+			fi
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
+			local shellscript=`echo ${line} | cut -d " " -f 2`
+			echo "apply Shell Script ${shellscript}"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
+			echo "not applying psqltest"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
+			echo "not applying common tests"
+		    fi
+		    glog user.notice "line of ${propversion}: ${line}"
+		done < ${versioncontent}/${propversion}
+
+		# Apply new version to it...
+		psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${propversion}';"
+		
+		# then run pgcmp-dump to get the version
+		PGCMPOUTPUT=./.mahout-data/${propversion}.pgcmp
+		PGCLABEL=${propversion} PGURI=${MAINDATABASE} PGCMPOUTPUT=${PGCMPOUTPUT} ${PGCMPHOME}/pgcmp-dump > /dev/null
+		rc=$?
+		if [ $rc -ne 0 ]; then
+		    glog user.error "Failure to use pgcmp-dump to dump base schema for capture DB - rc=[${rc}]"
+		else
+		    glog user.notice "Dumped pgcmp data to ${PGCMPOUTPUT}"
+		fi
+	    fi
+	fi
+    done		
     echo "capture Not fully implemented yet"
-    exit 1    
+    # rm -f ${depfodder} ${dependencies} ${versionorder}
+    rm -rf ${versioncontent}
 }
 
 function mahout_check () {
     # Compares the schema to what is indicated by pgcmp
+    #    - that can be mostly copied from mahout_capture()
     # Also check md5 checksums on /all/ scripts
+    #    - just a new loop...
     # pgcmp can have a set of acceptable differences...
+    #    - Needs to have a config parm for PGCEXPLANATIONS
     echo "check Not implemented yet"
     exit 1    
 }
@@ -460,12 +613,6 @@ function mahout_changes () {
     echo "changes Not implemented yet"
     exit 1    
 }
-
-function mahout_slonik () {
-    echo "slonik Not implemented yet"
-    exit 1    
-}
-
 
 case $SUBCOMMAND in
    init)
