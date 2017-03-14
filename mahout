@@ -574,7 +574,6 @@ function mahout_capture () {
 	    fi
 	fi
     done		
-    echo "capture Not fully implemented yet"
     rm -f ${depfodder} ${dependencies} ${versionorder}
     rm -rf ${versioncontent}
 }
