@@ -164,8 +164,8 @@ function mahout_init () {
     mkdir $MAHOUTHOME/Base
     glog user.notice "Dumping database ${MDB} to Base/base-schema.sql"
     pg_dump -d ${MDB} -s > $MAHOUTHOME/Base/base-schema.sql
-    md5sum $MAHOUTHOME/Base/base-schema.sql > $MAHOUTHOME/Base/.base-schema.sql.md5sum
-    checksum=`cat $MAHOUTHOME/Base/.base-schema.sql.md5sum`
+    md5sum $MAHOUTHOME/Base/base-schema.sql > $MAHOUTHOME/Base/base-schema.sql.md5sum
+    checksum=`cat $MAHOUTHOME/Base/base-schema.sql.md5sum`
     glog user.notice "mahout: initial control file set up indicating schema from ${MDB} as schema"
     glog user.notice "mahout: base schema set up with checksum [${checksum}]"
     glog user.notice "mahout: please edit ${MO} to validate configuration parameters"
@@ -179,7 +179,7 @@ function mahout_init () {
   insert into version_log (version, install_start, install_end)
      select 'Base', now(), clock_timestamp();
   insert into action_log (action_start, action_end, action, version, action_type, action_source, action_md5, result, success)
-  select now(), clock_timestamp(), 'Initialize Base Schema', 'Base', 'initialize', 'mahout tool', NULL::text, 'completed', 't'::boolean;
+  select now(), clock_timestamp(), 'Initialize Base Schema', 'Base', 'initialize', 'mahout tool', '${checksum}', 'completed', 't'::boolean;
   commit; " > ${MAHOUTTMP}/setup-mahout-schema.sql
 
     psql -d ${MDB} -f ${MAHOUTTMP}/setup-mahout-schema.sql > /dev/null 2>&1
@@ -192,16 +192,12 @@ function mahout_init () {
     fi
     
     # And capture the pgcmp output as .mahout-data/Base.pgcmp
-    # Set up parms:
-    # PGURI
-    # PGCOMITSCHEMAS
-    # PGCLABEL=Base
     glog user.notice "Dump Base schema data via pgcmp"
     BASEPGCMP=${MAHOUTHOME}/.mahout-data/Base.pgcmp
     PGCLABEL=Base PGURI=${MDB} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${BASEPGCMP} ${PGCH}/pgcmp-dump > /dev/null
     rc=$?
     if [ $rc -ne 0 ]; then
-	glog user.error "Failure to use pgcmp to dump base schema - rc=[${rc}]"
+	glog user.error "Failure to use pgcmp to dump base schema metadata - rc=[${rc}]"
     else
 	glog user.notice "Dumped Base schema pgcmp data to ${BASEPGCMP}"
     fi
@@ -246,7 +242,7 @@ function split_versions () {
 function calculate_dependencies () {
     local dependencies=$2
     local versionorder=$3
-    glog user.notice "calculate_dependencies (${depfodder},${dependencies},${versionorder})"
+    glog user.debug "calculate_dependencies (${depfodder},${dependencies},${versionorder})"
     
     local dropcomments=`mktemp /tmp/mahout-version-ordering.sanscomments.XXXXXXXXXXX`
     local dropwhitespace=`mktemp /tmp/mahout-version-ordering.sanswhitespace.XXXXXXXXXXX`
@@ -260,15 +256,13 @@ function calculate_dependencies () {
     do
 	if [ $(echo "${line}" | egrep -c "^[0-9]+:version") -eq 1 ]; then
 	    dversion=`echo ${line} | cut -d : -f 2 | sed "s/^version //"`
-	    echo "found version: ${dversion}"
 	fi
 	if [ $(echo "${line}" | egrep -c "^[0-9]+:requires") -eq 1 ]; then
 	    drequires=`echo ${line} | cut -d : -f 2 | sed "s/^requires[ \t]//"`
 	    echo "${drequires} ${dversion}" >> ${dependencies}
-	    echo "found requires: ${drequires}"
 	fi
     done < ${depfodder}
-    glog user.notice "Generated dependency list: ${dependencies}"
+    glog user.debug "Generated dependency list: ${dependencies}"
     tsort ${dependencies} > ${versionorder}
     retcode=$?
     if [ $retcode -ne 0 ]; then
@@ -315,15 +309,24 @@ function validate_control () {
 
 	# check that shell lines refer to files that actually exist
         egrep -n "^shell " ${dropwhitespace} > ${shellscripts}
+	local shelldata
+	local shellfile
+	local shellparm
 	local line
 	while read line
 	do
 	    lineno=`echo ${line} | cut -d : -f 1`
-	    pfilename=`echo ${line} | sed 's/^[0-9]*: *shell[ \t]*//'`
-	    if [ -e ${pfilename} ]; then
-		glog user.notice "shell file ${pfilename} on line ${lineno} exists"
+	    shelldata=`echo ${line} | sed 's/^[0-9]*: *shell[ \t]*//'`
+	    shellfile=`echo $shelldata | cut -d " " -f 1`
+	    shellparm=`echo $shelldata | cut -d " " -f 2`
+	    if [ -e ${shellfile} ]; then
+		if [ -x ${shellfile} ]; then
+		    glog user.notice "shell file ${shellfile} on line ${lineno} exists, executable"
+		else
+		    glog user.error "shell file ${shellfile} on line ${lineno} exists, NOT executable"
+		fi
 	    else
-		glog user.error "shell file ${pfilename} on line ${lineno} does not exist"
+		glog user.error "shell file ${shellfile} on line ${lineno} does not exist"
 	    fi
 	done < ${shellscripts}
 	
@@ -339,7 +342,7 @@ function validate_control () {
 	    required=`echo ${line} | sed 's/^[0-9]*: *requires[ \t]*//'`
 	    requiredver=`egrep "^[0-9]*:version[ \t]*${required}\$" ${vfile}`
 	    if [ "${requiredver}" != "" ]; then
-		glog user.notice "Line ${lineno} wants version ${required}, found as ${requiredver}"
+		glog user.notice "Line ${lineno} expects prerequisite ${required}, found ${requiredver}"
 	    else
 		glog user.error "Line ${lineno} wants version ${required}, not found"
 	    fi
@@ -404,7 +407,6 @@ function mahout_capture () {
     local PGCMPOUTPUT
     
     INMAHOUT=`in_mahout_home`
-    glog user.notice "inmahout provided ${INMAHOUT}"
     if [[ ${INMAHOUT} != 0 ]]; then
 	glog user.error "capture: not in mahout directory - ${INMAHOUT}"
 	exit 1
@@ -412,6 +414,7 @@ function mahout_capture () {
     
     # acquire configuration from mahout.conf
     source mahout.conf
+    glog user.notice "Applying changes to database MAINDATABASE=[${MAINDATABASE}]"
     
     # check the version in the database
     local DBVERSIONQ="select version from \"${MAHOUTSCHEMA}\".version_log order by install_end desc limit 1;"
@@ -467,10 +470,11 @@ function mahout_capture () {
 	if [[ $propversion == ${DBVERSION} ]]; then
 	    # We have reached the point at which versions should get captured
 	    versionswanted=true
+	    glog user.notice "Capture examining versions to apply - already on ${propversion}"
 	else
 	    if [[ $versionswanted == "true" ]]; then
 		# need to apply scripts to the database
-		glog user.notice "Applying scripts for version ${propversion}"
+		glog user.notice "Capture needs to apply version ${propversion}"
 		psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', now());"
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
@@ -493,6 +497,7 @@ function mahout_capture () {
 			local sqlscript=`echo ${line} | cut -d " " -f 2`
 			glog user.notice "apply SQL Script ${sqlscript}"
 			md5sum=`md5sum < ${sqlscript}`
+			echo ${md5sum} > ${sqlscript}.md5sum
 			psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', now(), 'capture', 'psql script', '${sqlscript}', '${md5sum}');"
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "Unable to set up action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
@@ -514,6 +519,7 @@ function mahout_capture () {
 			local sqlscript=`echo ${line} | cut -d " " -f 2`
 			echo "apply SQL Superuser Script ${sqlscript}"
 			md5sum=`md5sum < ${sqlscript}`
+			echo ${md5sum} > ${sqlscript}.md5sum
 			psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', now(), 'capture', 'psql superuser script', '${sqlscript}', '${md5sum}');"
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "Unable to set up action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
@@ -533,13 +539,20 @@ function mahout_capture () {
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
 			local shellscript=`echo ${line} | cut -d " " -f 2`
-			echo "apply Shell Script ${shellscript}"
+			local shellarg=`echo ${line} | cut -d " " -f 3`
+			local md5sum
+			md5sum=`md5sum < ${shellscript}`
+			echo ${md5sum} > ${shellscript}.md5sum
+			
+			glog user.notice "apply Shell Script ${shellscript} with argument ${shellarg} - value=${!shellarg}"
+			echo "applying thus: MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}"
+			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
-			echo "not applying psqltest"
+			glog user.notice "not applying psqltest"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
-			echo "not applying common tests"
+			glog user.notice "not applying common tests"
 		    fi
 		    glog user.notice "line of ${propversion}: ${line}"
 		done < ${versioncontent}/${propversion}
@@ -556,11 +569,13 @@ function mahout_capture () {
 		else
 		    glog user.notice "Dumped pgcmp data to ${PGCMPOUTPUT}"
 		fi
+   	    else
+		glog user.notice "Capture not applying earlier version ${propversion}"
 	    fi
 	fi
     done		
     echo "capture Not fully implemented yet"
-    # rm -f ${depfodder} ${dependencies} ${versionorder}
+    rm -f ${depfodder} ${dependencies} ${versionorder}
     rm -rf ${versioncontent}
 }
 
