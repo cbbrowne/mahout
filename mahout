@@ -164,7 +164,7 @@ function mahout_init () {
     mkdir $MAHOUTHOME/Base
     glog user.notice "Dumping database ${MDB} to Base/base-schema.sql"
     pg_dump -d ${MDB} -s > $MAHOUTHOME/Base/base-schema.sql
-    md5sum $MAHOUTHOME/Base/base-schema.sql > $MAHOUTHOME/Base/base-schema.sql.md5sum
+    cat $MAHOUTHOME/Base/base-schema.sql | md5sum > $MAHOUTHOME/Base/base-schema.sql.md5sum
     checksum=`cat $MAHOUTHOME/Base/base-schema.sql.md5sum`
     glog user.notice "mahout: initial control file set up indicating schema from ${MDB} as schema"
     glog user.notice "mahout: base schema set up with checksum [${checksum}]"
@@ -401,6 +401,20 @@ function in_mahout_home () {
     fi	
 }
 
+function get_mahout_version () {
+    local DBURI=$1
+    local DBVERSIONQ="select version from \"${MAHOUTSCHEMA}\".version_log order by install_end desc limit 1;"
+    local DBVERSION=`psql -d ${DBURI} -qAt -c "${DBVERSIONQ}"`
+    rc=$?
+    if [ $rc != 0 ]; then
+	glog user.error "get_mahout_version - query for version failed - rc=[${rc}]"
+	exit 1
+    else
+	echo ${DBVERSION}
+    fi
+}
+				
+
 function mahout_capture () {
     # check that we're in a Mahout directory
     local INMAHOUT
@@ -415,10 +429,9 @@ function mahout_capture () {
     # acquire configuration from mahout.conf
     source mahout.conf
     glog user.notice "Applying changes to database MAINDATABASE=[${MAINDATABASE}]"
-    
+
     # check the version in the database
-    local DBVERSIONQ="select version from \"${MAHOUTSCHEMA}\".version_log order by install_end desc limit 1;"
-    local DBVERSION=`psql -d ${MAINDATABASE} -qAt -c "${DBVERSIONQ}"`
+    local DBVERSION=`get_mahout_version "${MAINDATABASE}"`
     glog user.notice "capture: found version: ${DBVERSION}"
 
     # Use pgcmp to check that the version in the database
@@ -497,7 +510,7 @@ function mahout_capture () {
 			local sqlscript=`echo ${line} | cut -d " " -f 2`
 			glog user.notice "apply SQL Script ${sqlscript}"
 			md5sum=`md5sum < ${sqlscript}`
-			echo ${md5sum} > ${sqlscript}.md5sum
+			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 			psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', now(), 'capture', 'psql script', '${sqlscript}', '${md5sum}');"
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "Unable to set up action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
@@ -540,9 +553,7 @@ function mahout_capture () {
 		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
 			local shellscript=`echo ${line} | cut -d " " -f 2`
 			local shellarg=`echo ${line} | cut -d " " -f 3`
-			local md5sum
-			md5sum=`md5sum < ${shellscript}`
-			echo ${md5sum} > ${shellscript}.md5sum
+			cat ${shellscript} | md5sum > ${shellscript}.md5sum
 			
 			glog user.notice "apply Shell Script ${shellscript} with argument ${shellarg} - value=${!shellarg}"
 			echo "applying thus: MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}"
@@ -579,14 +590,90 @@ function mahout_capture () {
 }
 
 function mahout_check () {
-    # Compares the schema to what is indicated by pgcmp
-    #    - that can be mostly copied from mahout_capture()
+    # check that we're in a Mahout directory
+    local INMAHOUT
+    local PGCMPOUTPUT
+    
+    INMAHOUT=`in_mahout_home`
+    if [[ ${INMAHOUT} != 0 ]]; then
+	glog user.error "check: not in mahout directory - ${INMAHOUT}"
+	exit 1
+    fi
+
+    # acquire configuration from mahout.conf
+    source mahout.conf
+    # check the version in the database
+    DBVERSION=`get_mahout_version ${MAINDATABASE}`
+    glog user.notice "check: found version: ${DBVERSION}"
+    
+    # Dump current schema using pgcmp-dump
+    CURRENTCMP=.mahout-temp/TempCurrent.pgcmp
+    PGCLABEL=TempCurrent PGURI=${MAINDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${CURRENTCMP} ${PGCMPHOME}/pgcmp-dump > /dev/null
+    rc=$?
+    if [ $rc -ne 0 ]; then
+	glog user.error "Failure to use pgcmp to dump current schema metadata - rc=[${rc}]"
+    else
+	glog user.notice "Dumped current schema pgcmp data to ${CURRENTCMP}"
+    fi
+    
     # Also check md5 checksums on /all/ scripts
     #    - just a new loop...
+    local sanswhitecomments=`mktemp /tmp/mahout-split-cleanwhitespace.XXXXXXXXXXXXX`
+    local allscripts=`mktemp /tmp/mahout-check-all-scripts.XXXXXXXXXXXX`
+    local lineno
+    local action
+    local filename
+    cut -d \# -f 1 < mahout.control | \
+	sed "s/^[ \t]*//" | \
+	sed "s/[ \t]*$//" | \
+	sed "s/[\t]/ /g" | \
+	sed "s/  / /g"           > ${sanswhitecomments}
+    egrep -n "^(psql|superuser|shell|psqltest|common tests)[ \t]*" ${sanswhitecomments} > ${allscripts}
+    while read line
+    do
+	lineno=`echo ${line} | cut -d : -f 1`
+	action=`echo ${line} | cut -d : -f 2 | cut -d " " -f 1`
+	filename=`echo ${line} | cut -d : -f 2 | cut -d " " -f 2`
+	if [ -f ${filename} ]; then
+	    # is there an md5 sum file?
+	    if [ -f ${filename}.md5sum ]; then
+		recordedsum=`cat ${filename}.md5sum`
+		computedsum=`cat ${filename} | md5sum -`
+		if [ "${recordedsum}" != "${computedsum}" ]; then
+		    glog user.error "checksum mismatch for action ${action} / file ${filename} - computed: [${computedsum}] recorded: [${recordedsum}]"
+		else
+		    glog user.notice "checksum fine for action ${action} / file ${filename} - [${computedsum}]"
+		fi
+	    else
+		glog user.error "no checksum recorded for action ${action} / file ${filename}"
+	    fi
+	else
+	    glog user.error "no script file recorded for action ${action} / file ${filename}"
+	fi
+    done < ${allscripts}
+
     # pgcmp can have a set of acceptable differences...
     #    - Needs to have a config parm for PGCEXPLANATIONS
-    echo "check Not implemented yet"
-    exit 1    
+    glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
+
+    PGCMPWORK=`mktemp -d /tmp/mahout-check-pgcmp-work.XXXXXXXXXXX`
+    PGCLABEL1=TempCurrent PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP}  PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    rc=$?
+    case ${rc} in
+	0)
+	    glog user.notice "pgcmp found exact match"
+	    ;;
+	2)
+	    glog user.error "pgcmp failed to run properly - see ${PGCMPWORK}/perform-comparison.log"
+	    exit 1
+	    ;;
+	3)
+	    glog user.error "pgcmp found differences inadequately explained"
+	    exit 2
+	    ;;
+    esac
+    # clean up temp files now...
+    rm -rf ${PGCMPWORK} ${sanswhitecomments} ${allscripts} ${CURRENTCMP}
 }
 
 ## Usual activity...
