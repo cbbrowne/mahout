@@ -192,15 +192,7 @@ function mahout_init () {
     fi
     
     # And capture the pgcmp output as .mahout-data/Base.pgcmp
-    glog user.notice "Dump Base schema data via pgcmp"
-    BASEPGCMP=${MAHOUTHOME}/.mahout-data/Base.pgcmp
-    PGCLABEL=Base PGURI=${MDB} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${BASEPGCMP} ${PGCH}/pgcmp-dump > /dev/null
-    rc=$?
-    if [ $rc -ne 0 ]; then
-	glog user.error "Failure to use pgcmp to dump base schema metadata - rc=[${rc}]"
-    else
-	glog user.notice "Dumped Base schema pgcmp data to ${BASEPGCMP}"
-    fi
+    dump_current_schema Base
 }
 
 function split_versions () {
@@ -407,13 +399,28 @@ function get_mahout_version () {
     local DBVERSION=`psql -d ${DBURI} -qAt -c "${DBVERSIONQ}"`
     rc=$?
     if [ $rc != 0 ]; then
-	glog user.error "get_mahout_version - query for version failed - rc=[${rc}]"
+	glog user.error "get_mahout_version - query for version failed - rc=[${rc}] for [${DBVERSIONQ}]"
 	exit 1
     else
 	echo ${DBVERSION}
     fi
 }
-				
+
+# Dump current schema so that we can check that it is a good match
+function dump_current_schema () {
+    local LABEL=$1
+    CURRENTCMP=.mahout-temp/${LABEL}.pgcmp
+    glog user.notice "Dump [${LABEL}] schema data via pgcmp-dump into ${CURRENTCMP}"
+    
+    # Dump current schema using pgcmp-dump
+    PGCLABEL=${LABEL} PGURI=${MAINDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${CURRENTCMP} ${PGCMPHOME}/pgcmp-dump > /dev/null
+    rc=$?
+    if [ $rc -ne 0 ]; then
+	glog user.error "Failure to use pgcmp to dump schema metadata for label [${LABEL}] - rc=[${rc}]"
+    else
+	glog user.notice "Dumped current schema pgcmp data label [${LABEL}] to ${CURRENTCMP}"
+    fi
+}
 
 function mahout_capture () {
     # check that we're in a Mahout directory
@@ -437,15 +444,8 @@ function mahout_capture () {
     # Use pgcmp to check that the version in the database
     # matches... Note that it should match EXACTLY; this is not a
     # production application
-    local CAPTUREFILE
-    CAPTUREFILE=`mktemp /tmp/mahout-capture-base.XXXXXXXXXXXX`
-    PGCLABEL=capturedb PGURI=${MAINDATABASE} PGCMPOUTPUT=${CAPTUREFILE} ${PGCMPHOME}/pgcmp-dump > /dev/null
-    rc=$?
-    if [ $rc -ne 0 ]; then
-	glog user.error "Failure to use pgcmp to dump base schema for capture DB - rc=[${rc}]"
-    else
-	glog user.notice "Dumped pgcmp data to ${CAPTUREFILE}"
-    fi
+    dump_current_schema capturedb
+    CAPTUREFILE=.mahout-temp/capturedb.pgcmp
 
     # we should compare against the pgcmp dump
     local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
@@ -607,14 +607,7 @@ function mahout_check () {
     glog user.notice "check: found version: ${DBVERSION}"
     
     # Dump current schema using pgcmp-dump
-    CURRENTCMP=.mahout-temp/TempCurrent.pgcmp
-    PGCLABEL=TempCurrent PGURI=${MAINDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${CURRENTCMP} ${PGCMPHOME}/pgcmp-dump > /dev/null
-    rc=$?
-    if [ $rc -ne 0 ]; then
-	glog user.error "Failure to use pgcmp to dump current schema metadata - rc=[${rc}]"
-    else
-	glog user.notice "Dumped current schema pgcmp data to ${CURRENTCMP}"
-    fi
+    dump_current_schema CurrentSchema
     
     # Also check md5 checksums on /all/ scripts
     #    - just a new loop...
@@ -657,7 +650,7 @@ function mahout_check () {
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
 
     PGCMPWORK=`mktemp -d /tmp/mahout-check-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1=TempCurrent PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP}  PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    PGCLABEL1=TempCurrent PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
 	0)
@@ -683,8 +676,23 @@ function mahout_check () {
 #   then release the lock by changing LOCKED to false, then trim
 
 function mahout_upgrade () {
+    # check that we're in a Mahout directory
+    local INMAHOUT
+    local PGCMPOUTPUT
+    
+    INMAHOUT=`in_mahout_home`
+    if [[ ${INMAHOUT} != 0 ]]; then
+	glog user.error "upgrade: not in mahout directory - ${INMAHOUT}"
+	exit 1
+    fi
+    # acquire configuration from mahout.conf
+    source mahout.conf
+    # check the version in the database
+    DBVERSION=`get_mahout_version ${MAINDATABASE}`
+    glog user.notice "upgrade: found version: ${DBVERSION}"
+
     # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
-    echo "upgrade Not implemented yet"
+    echo "upgrade Not fully implemented yet"
     exit 1    
 }
 
