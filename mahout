@@ -171,7 +171,6 @@ function mahout_init () {
     glog user.notice "mahout: please edit ${MO} to validate configuration parameters"
 
     echo "begin;  create schema if not exists \"${MHSCH}\";  set search_path to \"${MHSCH}\";
-    create table if not exists changelog_lock (id serial primary key, locked boolean not null, lock_granted timestamptz, lockedby text);
     create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
     create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
   delete from version_log;
@@ -668,12 +667,6 @@ function mahout_check () {
     # clean up temp files now...
     rm -rf ${PGCMPWORK} ${sanswhitecomments} ${allscripts} ${CURRENTCMP}
 }
-
-## Usual activity...
-#   delete from _mahout.changelog_lock;
-#    insert into _mahout.changelog_lock (locked, lock_granted, locked_by) values ('true', now(), 'requesting user metadata');
-#   [DO STUFF]
-#   then release the lock by changing LOCKED to false, then trim
 
 function mahout_upgrade () {
     # check that we're in a Mahout directory
