@@ -1,0 +1,4 @@
+* Tests
+
+  This section implements some tests to validate expected parts of
+  mahout that should work.
