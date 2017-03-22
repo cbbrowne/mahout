@@ -248,6 +248,8 @@ function calculate_dependencies () {
     egrep -n "^(version|requires)" ${dropwhitespace} > ${depfodder}
     local dversion
     local drequires
+
+    echo "Base Base" > ${dependencies}
     while read line
     do
 	if [ $(echo "${line}" | egrep -c "^[0-9]+:version") -eq 1 ]; then
@@ -258,7 +260,7 @@ function calculate_dependencies () {
 	    echo "${drequires} ${dversion}" >> ${dependencies}
 	fi
     done < ${depfodder}
-    glog user.debug "Generated dependency list: ${dependencies}"
+    glog user.notice "Generated dependency list: ${dependencies}"
     tsort ${dependencies} > ${versionorder}
     retcode=$?
     if [ $retcode -ne 0 ]; then
@@ -751,6 +753,94 @@ function mahout_upgrade () {
     esac
 
     # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
+
+    local depfodder=`mktemp /tmp/mahout-upgrade-dependency-fodder.XXXXXXXXXXXX`
+    local dependencies=`mktemp /tmp/mahout-upgrade-dependencies.XXXXXXXXXXXX`
+    local versionorder=`mktemp /tmp/mahout-upgrade-version-order.XXXXXXXXXXXX`
+    local versioncontent=`mktemp -d /tmp/mahout-upgrade-version-content.XXXXXXXXXXXX`
+    calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
+    glog user.notice "calced dependencies"
+    split_versions ${versioncontent}
+    versionswanted=false
+    for propversion in `cat ${versionorder}`; do
+	if [[ $propversion == ${DBVERSION} ]]; then
+	    # We have reached the point at which versions should get captured
+	    versionswanted=true
+	    glog user.notice "Capture examining versions to apply - already on ${propversion}"
+	else
+	    if [[ $versionswanted == "true" ]]; then
+		# need to apply scripts to the database
+		glog user.notice "Upgrade needs to apply version ${propversion}"
+		version_load_start ${propversion}
+		
+		glog user.notice "From script ${versioncontent}/${propversion}"
+		while read line
+		do
+		    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
+			echo "no action apropos for version line"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
+  		        echo "no action apropos for requires line"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
+			local sqlscript=`echo ${line} | cut -d " " -f 2`
+			glog user.notice "apply SQL Script ${sqlscript}"
+			md5sum=`md5sum < ${sqlscript}`
+			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
+			action_start $propversion upgrade "psql script" ${sqlscript} "${md5sum}"
+			psql -d ${MAINDATABASE} -f ${sqlscript} --single-transaction
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
+			    action_end "upgrade" "psql script" "${sqlscript}" "${md5sum}" f
+			    exit 1
+			else
+			    action_end ${propversion} "upgrade" "psql script" "${sqlscript}" "${md5sum}" t
+			fi
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
+			local sqlscript=`echo ${line} | cut -d " " -f 2`
+			echo "apply SQL Superuser Script ${sqlscript}"
+			md5sum=`md5sum < ${sqlscript}`
+			echo ${md5sum} > ${sqlscript}.md5sum
+			action_start ${propversion} "upgrade" "psql superuser script" "${sqlscript}" "${md5sum}"
+			psql -d ${SUPERUSERACCESS} -f ${sqlscript} --single-transaction
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
+			    action_end upgrade "psql script" "${sqlscript}" "${md5sum}" f
+			    exit 1
+			else
+			    action_end upgrade "psql script" "${sqlscript}" "${md5sum}" t
+			fi
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
+			local shellscript=`echo ${line} | cut -d " " -f 2`
+			local shellarg=`echo ${line} | cut -d " " -f 3`
+			cat ${shellscript} | md5sum > ${shellscript}.md5sum
+
+			action_start ${propversion} "upgrade" "shell script" "${shellscript}" "${md5sum}"			
+			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}
+			action_end ${propversion} "upgrade" "shell script" "${shellscript}" "${md5sum}" t
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
+			glog user.notice "psqltest not yet supported"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
+			glog user.notice "no action apropos for common tests"
+		    fi
+		    glog user.notice "line of ${propversion}: ${line}"
+		done < ${versioncontent}/${propversion}
+
+		# Apply new version to it...
+		version_load_end ${propversion}
+		
+   	    else
+		glog user.notice "Upgrade not applying earlier version ${propversion}"
+	    fi
+	fi
+    done		
+    rm -f ${depfodder} ${dependencies} ${versionorder}
+    rm -rf ${versioncontent}
+    
     echo "upgrade Not fully implemented yet"
     exit 1    
 }
@@ -774,6 +864,8 @@ function mahout_install () {
     if [ ${FINDSCHEMA} == "1" ]; then
 	glog user.error "Database already has Mahout schema ${MAHOUTSCHEMA}"
 	exit 1
+    else
+	glog user.notice "Database not yet mahoutized"
     fi
 
     local SETUPQ=`mktemp /tmp/mahout-install-setup.XXXXXXXXXXXXXX`
@@ -781,7 +873,9 @@ function mahout_install () {
     create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
     create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
   truncate version_log;
-  truncate action_log;" > ${SETUPQ}
+  truncate action_log;
+  insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'install mahout', 'MahoutInstall', 'install', 'mahout', 'initialized', 't');
+  commit;" > ${SETUPQ}
 
     psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
     retcode=$?
@@ -790,17 +884,21 @@ function mahout_install () {
 	exit 1
     else
 	glog user.notice "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
+	rm -f ${SETUPQ}
     fi
     
     local depfodder=`mktemp /tmp/mahout-install-dependency-fodder.XXXXXXXXXXXX`
     local dependencies=`mktemp /tmp/mahout-install-dependencies.XXXXXXXXXXXX`
     local versionorder=`mktemp /tmp/mahout-install-versionorder.XXXXXXXXXXXX`
-    local versioncontent=`mktemp -d /tmp/mahout-capture-version-content.XXXXXXXXXXXX`
+    local versioncontent=`mktemp -d /tmp/mahout-install-version-content.XXXXXXXXXXXX`
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
 
     split_versions ${versioncontent}
 
+    glog user.notice "Split versions"
+
     for propversion in `cat ${versionorder}`; do
+	glog user.notice "mahout install working on version ${propversion}"
 	version_load_start ${propversion}
 
 	while read line
@@ -817,7 +915,7 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 		action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
-		psql -d ${MAINDATABASE} -f ${sqlscript} --single-transaction
+		psql -d ${MAINDATABASE} -f ${sqlscript} --single-transaction > ${sqlscript}.log 2>&1
 		if [ $retcode -ne 0 ]; then
 		    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
 		    action_end "capture" "psql script" "${sqlscript}" "${md5sum}" f
@@ -832,7 +930,7 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		echo ${md5sum} > ${sqlscript}.md5sum
 		action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
-		psql -d ${SUPERUSERACCESS} -f ${sqlscript} --single-transaction
+		psql -d ${SUPERUSERACCESS} -f ${sqlscript} --single-transaction > ${sqlscript}.log 2>&1
 		if [ $retcode -ne 0 ]; then
 		    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
 		    action_end capture "psql script" "${sqlscript}" "${md5sum}" f
@@ -845,8 +943,7 @@ function mahout_install () {
 		local shellscript=`echo ${line} | cut -d " " -f 2`
 		local shellarg=`echo ${line} | cut -d " " -f 3`
 		cat ${shellscript} | md5sum > ${shellscript}.md5sum
-		
-		action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"			
+		action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"
 		MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}
 		action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
 	    fi
