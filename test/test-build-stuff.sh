@@ -141,3 +141,46 @@ glog user.notice "do upgrade of the install instance to run v1.2"
 cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
 (cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+
+
+echo "
+
+version 1.3
+requires 1.2
+psql 1.3/stuff.sql
+
+" >> ${PROJECTNAME}/mahout.control
+
+mkdir ${PROJECTNAME}/1.3
+
+echo "
+   alter table t3 add column deleted_on timestamptz;
+   create index t3_deleted on t3(deleted_on) where (deleted_on is not null);
+
+" > ${PROJECTNAME}/1.3/stuff.sql
+
+glog user.notice "mahout capture on v1.3"
+(cd ${PROJECTNAME}; ${MAHOUT} capture)
+
+echo "
+
+version 1.4
+requires 1.3
+psql 1.4/stuff.sql
+
+" >> ${PROJECTNAME}/mahout.control
+
+mkdir ${PROJECTNAME}/1.4
+
+echo "
+   alter table t3 drop column deleted_on;
+   alter table t3 add column updated_on timestamptz default now();
+" > ${PROJECTNAME}/1.4/stuff.sql
+
+glog user.notice "mahout capture on v1.4"
+(cd ${PROJECTNAME}; ${MAHOUT} capture)
+
+glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
+cp -r ${PROJECTNAME} ${TARGETDIR}
+fix_install_uri
+(cd ${TARGETMHDIR}; ${MAHOUT} upgrade)

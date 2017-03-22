@@ -840,9 +840,6 @@ function mahout_upgrade () {
     done		
     rm -f ${depfodder} ${dependencies} ${versionorder}
     rm -rf ${versioncontent}
-    
-    echo "upgrade Not fully implemented yet"
-    exit 1    
 }
 
 function mahout_install () {
