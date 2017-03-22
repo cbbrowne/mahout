@@ -4,7 +4,7 @@ SUBCOMMAND=$1
 PARM1=$2
 PARM2=$3
 
-MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS:-${PGCOMITSCHEMAS:-"('pg_catalog','information_schema','Mahout')"}}
+MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS:-${PGCOMITSCHEMAS:-"('pg_catalog','information_schema','${MAHOUTSCHEMA}')"}}
 
 help () {
      echo "
@@ -17,6 +17,8 @@ mahout commands:
     Captures pgcmp files to use for database schema comparisons
  mahout attach
     Attaches a particular version label to the present database schema
+ mahout install
+    Installs a mahout-managed schema in a blank database
  mahout check
     Checks the version indicated by mahout.conf and checks the schema against
     that version using pgcmp
@@ -87,6 +89,7 @@ function mahout_init () {
     MCL=${COMPARISONDATABASE:-${PGDATABASE:-"COMPARISONDATABASEUNSET"}}
     PGCH=${PGCMPHOME:-"/home/cbbrowne/PostgreSQL/pgcmp"}
     MHSCH=${MAHOUTSCHEMA:-"Mahout"}
+    glog user.notice "Mahout schema: [${MHSCH}]"
 
     if [ -d $MAHOUTHOME ]; then
 	glog user.error "Directory [${MAHOUTHOME}] already exists - aborting"
@@ -114,7 +117,7 @@ function mahout_init () {
     fi
     
     echo "# MAHOUTOMITSCHEMAS: set of schemas to ignore for comparisons" >> ${MO}
-    echo "MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS}" >> ${MO}
+    echo "MAHOUTOMITSCHEMAS=\"${MAHOUTOMITSCHEMAS}\"" >> ${MO}
     echo "# PGCMPHOME: location to find pgcmp, pgcmp-dump" >> ${MO}
     echo "PGCMPHOME=${PGCH}" >> ${MO}
     echo "# MAHOUTSCHEMA: which schema to use for Mahout database objects" >> ${MO}
@@ -191,7 +194,7 @@ function mahout_init () {
     fi
     
     # And capture the pgcmp output as .mahout-data/Base.pgcmp
-    (cd ${MAHOUTHOME}; MAINDATABASE=${MDB} dump_current_schema Base ${MAHOUTHOME}/.mahout-data/Base.pgcmp)
+    (cd ${MAHOUTHOME}; MAINDATABASE=${MDB} MAHOUTOMITSCHEMAS="${MAHOUTOMITSCHEMAS}" dump_current_schema Base ${MAHOUTHOME}/.mahout-data/Base.pgcmp)
 
 }
 
@@ -232,6 +235,7 @@ function split_versions () {
 
 # Generate version ordering
 function calculate_dependencies () {
+    local depfodder=$1
     local dependencies=$2
     local versionorder=$3
     glog user.debug "calculate_dependencies (${depfodder},${dependencies},${versionorder})"
@@ -406,6 +410,71 @@ function get_mahout_version () {
     fi
 }
 
+function version_load_start () {
+    local version=$1
+    psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${version}', now());"
+    local retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Unable to set up version log for version [${version}] against database [${MAINDATABASE}]"
+	exit 1
+    else
+	glog user.notice "Begin load of version [${version}] to database [${MAINDATABASE}]"
+    fi
+}
+
+function version_load_end () {
+    local version=$1
+    psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${version}';"
+
+    local retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Unable to complete version logging for version [${version}] against database [${MAINDATABASE}]"
+	exit 1
+    else
+	glog user.notice "Complete load of version [${version}] to database [${MAINDATABASE}]"
+    fi
+}
+
+function action_start () {
+    local version=$1
+    local action=$2
+    local actiontype=$3
+    local actionsource=$4
+    local amd5=$5
+    
+    local asquery="insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${version}', now(), '${action}', '${actiontype}', '${actionsource}', '${amd5}');"
+
+    psql -d ${MAINDATABASE} -c "${asquery}"
+
+    local retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Unable to record action logging for version [${version}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+	exit 1
+    else
+	glog user.notice "Recorded action logging for version [${version}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+    fi
+}
+function action_end () {
+    local version=$1
+    local action=$2
+    local actiontype=$3
+    local actionsource=$4
+    local amd5=$5
+    local success=$6
+    
+    local asquery="update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='${success}', action_end=now() where version='${version}' and action='${action}' and action_type='${actiontype}' and action_source='${actionsource}' and action_md5 = '${amd5}' and action_log is null;"
+
+    psql -d ${MAINDATABASE} -c "${asquery}"
+
+    local retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Unable to complete action logging for version [${version}]/action[${action}]/actiontype[${actiontype}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+	exit 1
+    else
+	glog user.notice "Completed action logging for version [${version}]/source[${asource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+    fi
+}
+
 # Dump current schema so that we can check that it is a good match
 function dump_current_schema () {
     local LABEL=$1
@@ -445,7 +514,7 @@ function mahout_capture () {
     # matches... Note that it should match EXACTLY; this is not a
     # production application
     CAPTUREFILE=${PWD}/.mahout-temp/capturedb.pgcmp
-    dump_current_schema capturedb ${CAPTUREFILE}
+    MAHOUTOMITSCHEMAS="${MAHOUTOMITSCHEMAS}" dump_current_schema capturedb ${CAPTUREFILE}
 
     # we should compare against the pgcmp dump
     local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
@@ -488,44 +557,30 @@ function mahout_capture () {
 	    if [[ $versionswanted == "true" ]]; then
 		# need to apply scripts to the database
 		glog user.notice "Capture needs to apply version ${propversion}"
-		psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', now());"
-		retcode=$?
-		if [ $retcode -ne 0 ]; then
-		    glog user.error "Unable to set up version log for version [${propversion}] in database [${MDB}]"
-		    exit 1
-		else
-		    glog user.notice "Begin load of version [${propversion}] to database [${MAINDATABASE}]"
-		fi
+		version_load_start ${propversion}
 		
 		glog user.notice "From script ${versioncontent}/${propversion}"
 		while read line
 		do
 		    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
-			echo "doing nothing about version line"
+			echo "no action apropos for version line"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
-  		        echo "doing nothing about requires line"
+  		        echo "no action apropos for requires line"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
 			local sqlscript=`echo ${line} | cut -d " " -f 2`
 			glog user.notice "apply SQL Script ${sqlscript}"
 			md5sum=`md5sum < ${sqlscript}`
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-			psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', now(), 'capture', 'psql script', '${sqlscript}', '${md5sum}');"
-			if [ $retcode -ne 0 ]; then
-			    glog user.error "Unable to set up action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
-			    exit 1
-			fi
+			action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
 			psql -d ${MAINDATABASE} -f ${sqlscript} --single-transaction
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-			    psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='f', action_end=now() where version='${propversion}' and action='capture' and action_type='psql script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_log is null;"
+			    action_end "capture" "psql script" "${sqlscript}" "${md5sum}" f
 			    exit 1
-			fi
-			psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='t', action_end=now() where version='${propversion}' and action='capture' and action_type='psql script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_log is null;"
-			if [ $retcode -ne 0 ]; then
-			    glog user.error "Unable to mark completion in action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
-			    exit 1
+			else
+			    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
@@ -533,43 +588,36 @@ function mahout_capture () {
 			echo "apply SQL Superuser Script ${sqlscript}"
 			md5sum=`md5sum < ${sqlscript}`
 			echo ${md5sum} > ${sqlscript}.md5sum
-			psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', now(), 'capture', 'psql superuser script', '${sqlscript}', '${md5sum}');"
-			if [ $retcode -ne 0 ]; then
-			    glog user.error "Unable to set up action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
-			    exit 1
-			fi
+			action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
 			psql -d ${SUPERUSERACCESS} -f ${sqlscript} --single-transaction
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
-			    psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='f', action_end=now() where version='${propversion}' and action='capture' and action_type='psql script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_log is null;"
+			    action_end capture "psql script" "${sqlscript}" "${md5sum}" f
 			    exit 1
-			fi
-			psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='t', action_end=now() where version='${propversion}' and action='capture' and action_type='psql superuser script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_log is null;"
-			if [ $retcode -ne 0 ]; then
-			    glog user.error "Unable to mark completion in action log for version [${propversion}] in database [${MDB}] step ${sqlscript}"
-			    exit 1
+			else
+			    action_end capture "psql script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
 			local shellscript=`echo ${line} | cut -d " " -f 2`
 			local shellarg=`echo ${line} | cut -d " " -f 3`
 			cat ${shellscript} | md5sum > ${shellscript}.md5sum
-			
-			glog user.notice "apply Shell Script ${shellscript} with argument ${shellarg} - value=${!shellarg}"
-			echo "applying thus: MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}"
+
+			action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"			
 			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}
+			action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
-			glog user.notice "not applying psqltest"
+			glog user.notice "psqltest not yet supported"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
-			glog user.notice "not applying common tests"
+			glog user.notice "no action apropos for common tests"
 		    fi
 		    glog user.notice "line of ${propversion}: ${line}"
 		done < ${versioncontent}/${propversion}
 
 		# Apply new version to it...
-		psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${propversion}';"
+		version_load_end ${propversion}
 		
 		# then run pgcmp-dump to get the version
 		VERSIONOUTPUT=${PWD}/.mahout-data/${propversion}.pgcmp
@@ -707,6 +755,115 @@ function mahout_upgrade () {
     exit 1    
 }
 
+function mahout_install () {
+    # check that we're in a Mahout directory
+    local INMAHOUT
+    local PGCMPOUTPUT
+    
+    INMAHOUT=`in_mahout_home`
+    if [[ ${INMAHOUT} != 0 ]]; then
+	glog user.error "upgrade: not in mahout directory - ${INMAHOUT}"
+	exit 1
+    fi
+    # acquire configuration from mahout.conf
+    source mahout.conf
+    
+    # check that there's no Mahout schema
+    local SCHEMAQ="select count(1) from pg_catalog.pg_namespace where nspname='${MAHOUTSCHEMA}';"
+    local FINDSCHEMA=`psql -d ${MAINDATABASE} -qAt -c "${SCHEMAQ}"`
+    if [ ${FINDSCHEMA} == "1" ]; then
+	glog user.error "Database already has Mahout schema ${MAHOUTSCHEMA}"
+	exit 1
+    fi
+
+    local SETUPQ=`mktemp /tmp/mahout-install-setup.XXXXXXXXXXXXXX`
+    echo "begin;  create schema if not exists \"${MAHOUTSCHEMA}\";  set search_path to \"${MAHOUTSCHEMA}\";
+    create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
+    create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
+  truncate version_log;
+  truncate action_log;" > ${SETUPQ}
+
+    psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
+    retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Unable to setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
+	exit 1
+    else
+	glog user.notice "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
+    fi
+    
+    local depfodder=`mktemp /tmp/mahout-install-dependency-fodder.XXXXXXXXXXXX`
+    local dependencies=`mktemp /tmp/mahout-install-dependencies.XXXXXXXXXXXX`
+    local versionorder=`mktemp /tmp/mahout-install-versionorder.XXXXXXXXXXXX`
+    local versioncontent=`mktemp -d /tmp/mahout-capture-version-content.XXXXXXXXXXXX`
+    calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
+
+    split_versions ${versioncontent}
+
+    for propversion in `cat ${versionorder}`; do
+	version_load_start ${propversion}
+
+	while read line
+	do
+	    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
+		echo "no action apropos for version line"
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
+  		echo "no action apropos for requires line"
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
+		local sqlscript=`echo ${line} | cut -d " " -f 2`
+		glog user.notice "apply SQL Script ${sqlscript}"
+		md5sum=`md5sum < ${sqlscript}`
+		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
+		action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
+		psql -d ${MAINDATABASE} -f ${sqlscript} --single-transaction
+		if [ $retcode -ne 0 ]; then
+		    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
+		    action_end "capture" "psql script" "${sqlscript}" "${md5sum}" f
+		    exit 1
+		else
+		    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" t
+		fi
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
+		local sqlscript=`echo ${line} | cut -d " " -f 2`
+		echo "apply SQL Superuser Script ${sqlscript}"
+		md5sum=`md5sum < ${sqlscript}`
+		echo ${md5sum} > ${sqlscript}.md5sum
+		action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
+		psql -d ${SUPERUSERACCESS} -f ${sqlscript} --single-transaction
+		if [ $retcode -ne 0 ]; then
+		    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
+		    action_end capture "psql script" "${sqlscript}" "${md5sum}" f
+		    exit 1
+		else
+		    action_end capture "psql script" "${sqlscript}" "${md5sum}" t
+		fi
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
+		local shellscript=`echo ${line} | cut -d " " -f 2`
+		local shellarg=`echo ${line} | cut -d " " -f 3`
+		cat ${shellscript} | md5sum > ${shellscript}.md5sum
+		
+		action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"			
+		MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}
+		action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
+		glog user.notice "psqltest not yet supported"
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
+		glog user.notice "no action apropos for common tests"
+	    fi
+	done < ${versioncontent}/${propversion}
+
+	version_load_end ${propversion}
+    done
+	
+    rm -rf ${SETUPQ} ${depfodder} ${dependencies} ${versionorder} 
+}
+
 function mahout_diff () {
     # use pgcmp to compare current schema in database against what is supposed to be there
     # This might be a good way of generating expected differences...
@@ -746,6 +903,9 @@ case $SUBCOMMAND in
        ;;
    check)
        mahout_check
+       ;;
+   install)
+       mahout_install
        ;;
    upgrade)
        mahout_upgrade
