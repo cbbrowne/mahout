@@ -61,10 +61,14 @@ expect the tool to be used:
      not captured
    - Could add an option to stop at a particular version label
    - This is likely to be invoked by developers, perhaps with some integration with build automation
+ - ~mahout install~ :: This is used to install a Mahout-managed schema
+      in a fresh database.
+   - This is how one would set up a fresh schema in a QA/production
+     environment.
  - ~mahout attach~ :: This is used to indicate that a particular
                      version should be associated with the present
                      schema
-   - This is how one would attach Mahout to an existing registry schema in production
+   - This is how one would attach Mahout to an existing schema in production
    - User specifies the version of the schema that they believe is in place
    - Mahout checks that the schema matches the schema for the requested version
    - If all matches, then Mahout would attach its own metadata to enable future tracking
@@ -128,7 +132,9 @@ expect the tool to be used:
     - SUPERUSERACCESS :: Contains the URI to be used for anything requiring superuser access
     - CLUSTERDATABASE :: This indicates the URI of a database suitable for creating databases
   - Data files
-    - In some cases, external data will be needed, /e.g./ - some upgrades required a data file corresponding registrars to IANA IDs
+    - In some cases, external data will be needed, /e.g./ - some
+      upgrades required a data file indicating configuration of DML
+      changes.
   - Slonik configuration :: There should be an option to ask ~mahout~ to generate a ~slonik~ script to request for [[http://slony.info][Slony]] to replicate the results across a cluster.
 
 #+BEGIN_EXAMPLE
@@ -259,7 +265,7 @@ expect the tool to be used:
    - Schema Application Logs (akin to what Liquibase does), capturing, for each data file processed, the name of the file, and the timestamps of start/end of processing of each processing step.
    - Note that the version will capture which ~mahout.control~ file was the one that established each version.
    - It should capture ~md5sum~ checksums of the script files so that we can be certain that the latest scripts have been applied and carried around correctly
-** Things Mahout does not itself do that we do today in Registry Universal Schema
+** Things Mahout does not itself do that we do today in Universal Schema
 
 These things need to be covered somewhere.
 
