@@ -74,6 +74,11 @@ function glog () {
     esac	    
 }
 
+function summary () {
+    local STEP=$1
+    glog user.notice "mahout ${STEP} complete with ${NOTICES} notices, ${WARNINGS} warnings, ${PROBLEMS} errors"
+}
+
 function mahout_init () {
     local MAHOUTHOME=${PWD}/$1
     local problems=0
@@ -196,6 +201,7 @@ function mahout_init () {
     # And capture the pgcmp output as .mahout-data/Base.pgcmp
     (cd ${MAHOUTHOME}; MAINDATABASE=${MDB} MAHOUTOMITSCHEMAS="${MAHOUTOMITSCHEMAS}" dump_current_schema Base ${MAHOUTHOME}/.mahout-data/Base.pgcmp)
 
+    summary init
 }
 
 function split_versions () {
@@ -216,7 +222,10 @@ function split_versions () {
     do
 	# if we get a new version, then change version files
 	if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
-	    cversion=`echo $line | cut -d " " -f 2`;
+	    cversion=`echo $line | cut -d " " -f 2`
+	fi
+	if [[ $(echo ${line} | egrep -c "^common tests") -eq 1 ]]; then
+	    cversion=`echo $line | cut -d " " -f 2`
 	fi
 	
 	case ${cversion} in
@@ -631,6 +640,7 @@ function mahout_capture () {
     done		
     rm -f ${depfodder} ${dependencies} ${versionorder}
     rm -rf ${versioncontent}
+    summary capture
 }
 
 function mahout_check () {
@@ -712,6 +722,7 @@ function mahout_check () {
     esac
     # clean up temp files now...
     rm -rf ${PGCMPWORK} ${sanswhitecomments} ${allscripts} ${CURRENTCMP}
+    summary check
 }
 
 function mahout_upgrade () {
@@ -839,7 +850,8 @@ function mahout_upgrade () {
 	fi
     done		
     rm -f ${depfodder} ${dependencies} ${versionorder}
-    rm -rf ${versioncontent}
+    rm -rf ${versioncontent} ${PGCMPWORK}
+    summary upgrade
 }
 
 function mahout_install () {
@@ -955,7 +967,9 @@ function mahout_install () {
 	version_load_end ${propversion}
     done
 	
-    rm -rf ${SETUPQ} ${depfodder} ${dependencies} ${versionorder} 
+    rm -f ${SETUPQ} ${depfodder} ${dependencies} ${versionorder}
+    rm -rf ${versioncontent}
+    summary install
 }
 
 function mahout_diff () {
@@ -963,26 +977,31 @@ function mahout_diff () {
     # This might be a good way of generating expected differences...
     echo "diff Not implemented yet"
     exit 1    
+    summary diff
 }
 
 function mahout_slonik () {
     echo "slonik Not implemented yet"
     exit 1    
+    summary slonik
 }
 
 function mahout_history () {
     echo "versions Not implemented yet"
     exit 1    
+    summary history
 }
 
 function mahout_versions () {
     echo "versions Not implemented yet"
     exit 1    
+    summary versions
 }
 
 function mahout_changes () {
     echo "changes Not implemented yet"
     exit 1    
+    summary changes
 }
 
 case $SUBCOMMAND in
