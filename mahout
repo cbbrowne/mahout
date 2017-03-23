@@ -189,7 +189,7 @@ function mahout_init () {
   select now(), clock_timestamp(), 'Initialize Base Schema', 'Base', 'initialize', 'mahout tool', '${checksum}', 'completed', 't'::boolean;
   commit; " > ${MAHOUTTMP}/setup-mahout-schema.sql
 
-    psql -d ${MDB} -f ${MAHOUTTMP}/setup-mahout-schema.sql > /dev/null 2>&1
+    psql -d ${MDB} -f ${MAHOUTTMP}/setup-mahout-schema.sql > ${MAHOUTTMP}/setup-mahout-schema.log 2>&1
     retcode=$?
     if [ $retcode -ne 0 ]; then
 	glog user.error "Unable to setup mahout schema in database [${MDB}]"
@@ -225,7 +225,7 @@ function split_versions () {
 	    cversion=`echo $line | cut -d " " -f 2`
 	fi
 	if [[ $(echo ${line} | egrep -c "^common tests") -eq 1 ]]; then
-	    cversion=`echo $line | cut -d " " -f 2`
+	    cversion=CommonTests
 	fi
 	
 	case ${cversion} in
@@ -349,7 +349,7 @@ function validate_control () {
 	    required=`echo ${line} | sed 's/^[0-9]*: *requires[ \t]*//'`
 	    requiredver=`egrep "^[0-9]*:version[ \t]*${required}\$" ${vfile}`
 	    if [ "${requiredver}" != "" ]; then
-		glog user.notice "Line ${lineno} expects prerequisite ${required}, found ${requiredver}"
+		glog user.debug "Line ${lineno} expects prerequisite ${required}, found ${requiredver}"
 	    else
 		glog user.error "Line ${lineno} wants version ${required}, not found"
 	    fi
@@ -423,7 +423,7 @@ function get_mahout_version () {
 
 function version_load_start () {
     local version=$1
-    psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${version}', now());"
+    psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${version}', now());"  > /dev/null 2>&1
     local retcode=$?
     if [ $retcode -ne 0 ]; then
 	glog user.error "Unable to set up version log for version [${version}] against database [${MAINDATABASE}]"
@@ -435,7 +435,7 @@ function version_load_start () {
 
 function version_load_end () {
     local version=$1
-    psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${version}';"
+    psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${version}';"  > /dev/null 2>&1
 
     local retcode=$?
     if [ $retcode -ne 0 ]; then
@@ -455,7 +455,7 @@ function action_start () {
     
     local asquery="insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${version}', now(), '${action}', '${actiontype}', '${actionsource}', '${amd5}');"
 
-    psql -d ${MAINDATABASE} -c "${asquery}"
+    psql -d ${MAINDATABASE} -c "${asquery}" > /dev/null 2>&1
 
     local retcode=$?
     if [ $retcode -ne 0 ]; then
@@ -473,9 +473,9 @@ function action_end () {
     local amd5=$5
     local success=$6
     
-    local asquery="update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='${success}', action_end=now() where version='${version}' and action='${action}' and action_type='${actiontype}' and action_source='${actionsource}' and action_md5 = '${amd5}' and action_log is null;"
+    local asquery="update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='${success}', action_end=now() where version='${version}' and action='${action}' and action_type='${actiontype}' and action_source='${actionsource}' and action_md5 = '${amd5}' and action_end is null;"
 
-    psql -d ${MAINDATABASE} -c "${asquery}"
+    psql -d ${MAINDATABASE} -c "${asquery}"  > /dev/null 2>&1
 
     local retcode=$?
     if [ $retcode -ne 0 ]; then
@@ -585,7 +585,8 @@ function mahout_capture () {
 			md5sum=`md5sum < ${sqlscript}`
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 			action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
-			psql -d ${MAINDATABASE} -f ${sqlscript} --single-transaction
+			psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
 			    action_end "capture" "psql script" "${sqlscript}" "${md5sum}" f
@@ -600,9 +601,10 @@ function mahout_capture () {
 			md5sum=`md5sum < ${sqlscript}`
 			echo ${md5sum} > ${sqlscript}.md5sum
 			action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
-			psql -d ${SUPERUSERACCESS} -f ${sqlscript} --single-transaction
+			psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			retcode=$?
 			if [ $retcode -ne 0 ]; then
-			    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
+			    glog user.error "superuser script ${sqlscript} failed against database [${MAINDATABASE}]"
 			    action_end capture "psql script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
@@ -615,11 +617,24 @@ function mahout_capture () {
 			cat ${shellscript} | md5sum > ${shellscript}.md5sum
 
 			action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"			
-			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}
+			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ./${shellscript}.${propversion}.log 2>&1
 			action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
-			glog user.notice "psqltest not yet supported"
+			local testscript=`echo ${line} | cut -d " " -f 2`
+			echo "apply SQL test script ${testscript}"
+			md5sum=`md5sum < ${testscript}`
+			echo ${md5sum} > ${testscript}.md5sum
+			action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
+			psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${testscript} --single-transaction > ${testscript}.${propversion}.log 2>&1
+			retcode=$?
+			if [ $retcode -eq 0 ]; then
+			    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" t
+			    
+			else
+			    glog user.error "test script ${testscript} failed against database [${MAINDATABASE}]"
+			    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" f			
+			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
 			glog user.notice "no action apropos for common tests"
@@ -629,6 +644,9 @@ function mahout_capture () {
 
 		# Apply new version to it...
 		version_load_end ${propversion}
+
+		# Run common tests
+
 		
 		# then run pgcmp-dump to get the version
 		VERSIONOUTPUT=${PWD}/.mahout-data/${propversion}.pgcmp
@@ -639,7 +657,7 @@ function mahout_capture () {
 	fi
     done		
     rm -f ${depfodder} ${dependencies} ${versionorder}
-    rm -rf ${versioncontent}
+    #rm -rf ${versioncontent}
     summary capture
 }
 
@@ -799,7 +817,8 @@ function mahout_upgrade () {
 			md5sum=`md5sum < ${sqlscript}`
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 			action_start $propversion upgrade "psql script" ${sqlscript} "${md5sum}"
-			psql -d ${MAINDATABASE} -f ${sqlscript} --single-transaction
+			psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
 			    action_end "upgrade" "psql script" "${sqlscript}" "${md5sum}" f
@@ -814,7 +833,8 @@ function mahout_upgrade () {
 			md5sum=`md5sum < ${sqlscript}`
 			echo ${md5sum} > ${sqlscript}.md5sum
 			action_start ${propversion} "upgrade" "psql superuser script" "${sqlscript}" "${md5sum}"
-			psql -d ${SUPERUSERACCESS} -f ${sqlscript} --single-transaction
+			psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
 			    action_end upgrade "psql script" "${sqlscript}" "${md5sum}" f
@@ -829,11 +849,11 @@ function mahout_upgrade () {
 			cat ${shellscript} | md5sum > ${shellscript}.md5sum
 
 			action_start ${propversion} "upgrade" "shell script" "${shellscript}" "${md5sum}"			
-			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}
+			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ${shellscript}.${propversion}.log 2>&1
 			action_end ${propversion} "upgrade" "shell script" "${shellscript}" "${md5sum}" t
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
-			glog user.notice "psqltest not yet supported"
+			glog user.notice "no action apropos for psqltest on upgrade"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
 			glog user.notice "no action apropos for common tests"
@@ -873,8 +893,6 @@ function mahout_install () {
     if [ ${FINDSCHEMA} == "1" ]; then
 	glog user.error "Database already has Mahout schema ${MAHOUTSCHEMA}"
 	exit 1
-    else
-	glog user.notice "Database not yet mahoutized"
     fi
 
     local SETUPQ=`mktemp /tmp/mahout-install-setup.XXXXXXXXXXXXXX`
@@ -924,7 +942,8 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 		action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
-		psql -d ${MAINDATABASE} -f ${sqlscript} --single-transaction > ${sqlscript}.log 2>&1
+		psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		retcode=$?
 		if [ $retcode -ne 0 ]; then
 		    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
 		    action_end "capture" "psql script" "${sqlscript}" "${md5sum}" f
@@ -939,7 +958,8 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		echo ${md5sum} > ${sqlscript}.md5sum
 		action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
-		psql -d ${SUPERUSERACCESS} -f ${sqlscript} --single-transaction > ${sqlscript}.log 2>&1
+		psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		retcode=$?
 		if [ $retcode -ne 0 ]; then
 		    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
 		    action_end capture "psql script" "${sqlscript}" "${md5sum}" f
@@ -953,16 +973,22 @@ function mahout_install () {
 		local shellarg=`echo ${line} | cut -d " " -f 3`
 		cat ${shellscript} | md5sum > ${shellscript}.md5sum
 		action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"
-		MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg}
+		MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ./${shellscript}.${propversion}.log 2>&1
 		action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
-		glog user.notice "psqltest not yet supported"
+		glog user.notice "psqltest does not run at install time"
 	    fi
-	    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
+	    if [[ $(echo ${line} | egrep -c "^common tests") -eq 1 ]]; then
 		glog user.notice "no action apropos for common tests"
 	    fi
 	done < ${versioncontent}/${propversion}
+
+	# If the common tests exists, the
+	if [ -e ${versioncontent}/CommonTests ]; then
+	    # Now, walking though common tests
+	    glog user.notice "applying common tests"
+	fi
 
 	version_load_end ${propversion}
     done
