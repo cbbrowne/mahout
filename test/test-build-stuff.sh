@@ -25,7 +25,7 @@ function glog () {
 	    DEBUGS=$((${DEBUGS} + 1))
   	    ;;
 	*)
-	    echo "${level} mahout ${notice}"
+	    echo "${level} test-build-stuff.sh ${notice}"
 	    ;;
     esac
     if [ -d ${MAHOUTLOG} ]; then
@@ -68,9 +68,64 @@ glog user.notice "Do mahout init to capture that base schema"
 rm -rf ./${PROJECTNAME}
 MAHOUTSCHEMA=MaHoutSchema PGCMPHOME=${PGCMPHOME} MAINDATABASE=${devuri} SUPERUSERACCESS=${clusterdb} COMPARISONDATABASE=${compuri} ${MAHOUT} init ${PROJECTNAME}
 
-glog user.notice "Do mahout capture; expect no change"
+glog user.notice "Do mahout capture without introducing any changes; expect no change"
 # Run mahout capture, without any change
 (cd ${PROJECTNAME}; ${MAHOUT} capture)
+
+glog user.notice "Add a common tests section"
+mkdir ${PROJECTNAME}/common-tests
+echo "
+
+common tests
+" >> ${PROJECTNAME}/mahout.control
+
+echo "select 1;" > ${PROJECTNAME}/common-tests/null-test.sql
+echo "  psqltest common-tests/null-test.sql" >> ${PROJECTNAME}/mahout.control
+
+echo "  psqltest common-tests/pk-test.sql" >> ${PROJECTNAME}/mahout.control
+echo "
+do \$\$
+declare
+   prec record;
+   c_found boolean;
+begin
+   c_found := 'f';
+   for prec in select nspname, relname from pg_class c, pg_namespace n where n.oid = c.relnamespace and (nspname not like 'pg_%' and nspname not in ('information_schema')) and not relhaspkey and relkind = 'r' loop
+	raise notice 'table without primary key: "%"."%"', prec.nspname, prec.relname;
+	c_found := 't';
+  end loop;
+  if c_found then
+	raise exception 'Tables without primary keys found!';
+  end if;
+end
+\$\$ language plpgsql;
+" > ${PROJECTNAME}/common-tests/pk-test.sql
+
+echo "  psqltest common-tests/multiply-defined.sql" >> ${PROJECTNAME}/mahout.control
+echo "
+do \$\$
+declare
+  c_found boolean;
+  prec record;
+  c_nsp text;
+  c_table text;
+  c_relname text;
+begin
+  c_found := 'f';
+
+  for prec in select table_name, count(1) as count from information_schema.tables where table_schema not in ('pg_catalog', 'information_schema') group by table_name having count(1) > 1 loop
+	c_found := 't';
+	raise notice 'relation % found % times', prec.table_name, prec.count;
+  end loop;
+
+  if c_found then
+	raise exception 'Relations found where the same table/view name was used multiple times!';
+  end if;
+end
+\$\$ language plpgsql;
+
+" > ${PROJECTNAME}/common-tests/multiply-defined.sql
+
 
 glog user.notice "Set up filesystem to use the captured mahout config for a fresh install"
 # Set up target directory for sample installation
@@ -99,6 +154,7 @@ echo "
 version 1.1
 requires Base
 psql 1.1/stuff.sql
+psqltest common-tests/pk-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
@@ -121,6 +177,7 @@ echo "
 version 1.2
 requires 1.1
 psql 1.2/stuff.sql
+psqltest common-tests/pk-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
 mkdir ${PROJECTNAME}/1.2
@@ -148,6 +205,7 @@ echo "
 version 1.3
 requires 1.2
 psql 1.3/stuff.sql
+psqltest common-tests/pk-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
@@ -156,6 +214,8 @@ mkdir ${PROJECTNAME}/1.3
 echo "
    alter table t3 add column deleted_on timestamptz;
    create index t3_deleted on t3(deleted_on) where (deleted_on is not null);
+
+   create table primary_keyless (id serial);
 
 " > ${PROJECTNAME}/1.3/stuff.sql
 
@@ -167,8 +227,14 @@ echo "
 version 1.4
 requires 1.3
 psql 1.4/stuff.sql
+psqltest common-tests/pk-test.sql
+psqltest common-tests/failing-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
+
+echo "
+select 1/0;
+" > ${PROJECTNAME}/common-tests/failing-test.sql
 
 mkdir ${PROJECTNAME}/1.4
 
@@ -184,3 +250,4 @@ glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
 cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
 (cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+
