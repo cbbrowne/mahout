@@ -1162,6 +1162,12 @@ function mahout_changes () {
     summary changes
 }
 
+function mahout_attach () {
+    echo "changes Not implemented yet"
+    exit 1    
+    summary attach
+}
+
 case $SUBCOMMAND in
    init)
        mahout_init ${PARM1} ${PARM2}
