@@ -462,7 +462,7 @@ function action_start () {
 	glog user.error "Unable to record action logging for version [${version}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
 	exit 1
     else
-	glog user.notice "Recorded action logging for version [${version}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+	glog user.debug "Recorded action logging for version [${version}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
     fi
 }
 function action_end () {
@@ -482,7 +482,7 @@ function action_end () {
 	glog user.error "Unable to complete action logging for version [${version}]/action[${action}]/actiontype[${actiontype}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
 	exit 1
     else
-	glog user.notice "Completed action logging for version [${version}]/source[${asource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+	glog user.debug "Completed action logging for version [${version}]/source[${asource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
     fi
 }
 
@@ -554,7 +554,7 @@ function mahout_capture () {
     local versionorder=`mktemp /tmp/mahout-capture-version-order.XXXXXXXXXXXX`
     local versioncontent=`mktemp -d /tmp/mahout-capture-version-content.XXXXXXXXXXXX`
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
-    glog user.notice "calced dependencies"
+    glog user.debug "calced dependencies"
 
     split_versions ${versioncontent}
 
@@ -568,17 +568,16 @@ function mahout_capture () {
 	else
 	    if [[ $versionswanted == "true" ]]; then
 		# need to apply scripts to the database
-		glog user.notice "Capture needs to apply version ${propversion}"
+		glog user.notice "Capture needs to apply version ${propversion} from ${versioncontent}/${propversion}"
 		version_load_start ${propversion}
-		
-		glog user.notice "From script ${versioncontent}/${propversion}"
+
 		while read line
 		do
 		    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
-			echo "no action apropos for version line"
+			glog user.debug "no action apropos for version line"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
-  		        echo "no action apropos for requires line"
+  		        glog user.debug "no action apropos for requires line"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
 			local sqlscript=`echo ${line} | cut -d " " -f 2`
@@ -685,11 +684,12 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 				    glog user.debug "Always run test [${testscript}]"
 				else
 				    glog user.debug "No test on line ${line}"
+				    testscript=""
 				fi
 			    fi
 			fi
 			if [ "${testscript}" != "" ]; then
-			    glog user.notice "common test [${testscript}] to be run from [${vfrom}] to [${vto}]"
+			    glog user.debug "common test [${testscript}] to be run from [${vfrom}] to [${vto}]"
 			    # now, iterate across the versions in ${versionorder} and see if
 			    # the present version ${propversion} is within the range
 			    local ver_in_range=false
@@ -752,7 +752,7 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 	fi
     done		
     rm -f ${depfodder} ${dependencies} ${versionorder}
-    #rm -rf ${versioncontent}
+    rm -rf ${versioncontent}
     summary capture
 }
 
