@@ -80,9 +80,9 @@ common tests
 " >> ${PROJECTNAME}/mahout.control
 
 echo "select 1;" > ${PROJECTNAME}/common-tests/null-test.sql
-echo "  psqltest common-tests/null-test.sql" >> ${PROJECTNAME}/mahout.control
+echo "  psqltest from 1.1 to 1.3 common-tests/null-test.sql" >> ${PROJECTNAME}/mahout.control
 
-echo "  psqltest common-tests/pk-test.sql" >> ${PROJECTNAME}/mahout.control
+echo "  psqltest from Base common-tests/pk-test.sql" >> ${PROJECTNAME}/mahout.control
 echo "
 do \$\$
 declare
@@ -154,7 +154,6 @@ echo "
 version 1.1
 requires Base
 psql 1.1/stuff.sql
-psqltest common-tests/pk-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
@@ -177,7 +176,6 @@ echo "
 version 1.2
 requires 1.1
 psql 1.2/stuff.sql
-psqltest common-tests/pk-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
 mkdir ${PROJECTNAME}/1.2
@@ -205,7 +203,6 @@ echo "
 version 1.3
 requires 1.2
 psql 1.3/stuff.sql
-psqltest common-tests/pk-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
@@ -227,7 +224,6 @@ echo "
 version 1.4
 requires 1.3
 psql 1.4/stuff.sql
-psqltest common-tests/pk-test.sql
 psqltest common-tests/failing-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
