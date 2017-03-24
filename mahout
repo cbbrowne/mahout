@@ -650,22 +650,104 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
-			glog user.notice "no action apropos for common tests"
+			glog user.debug "no action apropos for common tests"
 		    fi
-		    glog user.notice "line of ${propversion}: ${line}"
+		    glog user.debug "line of ${propversion}: ${line}"
 		done < ${versioncontent}/${propversion}
 
 		# Apply new version to it...
 		version_load_end ${propversion}
 
 		# Run common tests
-
+		if [ -f ${versioncontent}/CommonTests ]; then
+		    glog user.debug "Checking which CommonTests to run"
+		    while read line
+		    do
+			local vfrom=Base
+			local vto=`tail -1 ${versionorder}`
+			local testscript
+			glog user.debug "common test check for line ${line}"
+			## Most specific... # psqltest from v1 to v2 testname
+			if [ $(echo ${line} | egrep -c "^psqltest from [a-zA-Z0-9.]+ to [a-zA-Z0-9.]+") -eq 1 ]; then
+			    # split out psql from v1 to v2 testname
+			    vfrom=`echo ${line} | cut -d " " -f 3`
+			    vto=`echo ${line} | cut -d " " -f 5`
+			    testscript=`echo ${line} | cut -d " " -f 6`
+			    glog user.debug "test [${testscript}] is run from [${vfrom}] to [${vto}]"
+			else
+			    if [ $(echo ${line} | egrep -c "^psqltest from [a-zA-Z0-9.]+") -eq 1 ]; then
+				vfrom=`echo ${line} | cut -d " " -f 3`
+				testscript=`echo ${line} | cut -d " " -f 4`
+				glog user.debug "test [${testscript}] is run from [${vfrom}]"
+			    else
+				if [ $(echo ${line} | egrep -c "^psqltest [a-zA-Z0-9.]+") -eq 1 ]; then
+				    testscript=`echo ${line} | cut -d " " -f 2`
+				    glog user.debug "Always run test [${testscript}]"
+				else
+				    glog user.debug "No test on line ${line}"
+				fi
+			    fi
+			fi
+			if [ "${testscript}" != "" ]; then
+			    glog user.notice "common test [${testscript}] to be run from [${vfrom}] to [${vto}]"
+			    # now, iterate across the versions in ${versionorder} and see if
+			    # the present version ${propversion} is within the range
+			    local ver_in_range=false
+			    local reached_ver=false
+			    local reached_from=false
+			    local reached_to=false
+			    local past_to=false
+			    for vi in `cat ${versionorder}`; do
+				if [ ${vi} == ${propversion} ]; then
+				    reached_ver=true
+				fi
+				if [ ${vi} == ${vfrom} ]; then
+				    reached_from=true
+				fi
+				if [ ${vi} == ${vto} ]; then
+				    reached_to=true
+				fi
+				if [ $reached_to == true ]; then
+				    if [ $vi != ${vto} ]; then
+					past_to=true
+				    fi
+				fi
+				# if present version is within the range then...
+				# - reached_ver = true
+				# - past_to = false
+				if [ $reached_ver == "true" ]; then
+				    if [ $past_to == "false" ]; then
+					ver_in_range=true
+				    fi
+				fi
+				glog user.debug "vi:${vi} cversion: ${propversion}  from:${vfrom} to:${vto} reached_ver:${reached_ver} ver_in_range:${ver_in_range} reached_from:${reached_from} reached_to:${reached_to} past_to:${past_to}"
+			    done
+			    if [ $ver_in_range == "true" ]; then
+				glog user.notice "running common SQL test script ${testscript}"
+				md5sum=`md5sum < ${testscript}`
+				echo ${md5sum} > ${testscript}.md5sum
+				action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
+				psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${testscript} --single-transaction > ${testscript}.${propversion}.log 2>&1
+				retcode=$?
+				if [ $retcode -eq 0 ]; then
+				    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" t
+				    
+				else
+				    glog user.error "test script ${testscript} failed against database [${MAINDATABASE}]"
+				    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" f			
+				fi
+			    else
+				glog user.notice "Not running common test ${testscript} - version [${propversion}] not in range ([${vfrom}],[${vto}])"
+			    fi
+			fi
+		    done < ${versioncontent}/CommonTests
+		fi
 		
 		# then run pgcmp-dump to get the version
 		VERSIONOUTPUT=${PWD}/.mahout-data/${propversion}.pgcmp
 		dump_current_schema ${propversion} ${VERSIONOUTPUT}
    	    else
-		glog user.notice "Capture not applying earlier version ${propversion}"
+		glog user.debug "Capture not applying earlier version ${propversion}"
 	    fi
 	fi
     done		
@@ -866,19 +948,19 @@ function mahout_upgrade () {
 			action_end ${propversion} "upgrade" "shell script" "${shellscript}" "${md5sum}" t
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
-			glog user.notice "no action apropos for psqltest on upgrade"
+			glog user.debug "no action apropos for psqltest on upgrade"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
-			glog user.notice "no action apropos for common tests"
+			glog user.debug "no action apropos for common tests"
 		    fi
-		    glog user.notice "line of ${propversion}: ${line}"
+		    glog user.debug "line of ${propversion}: ${line}"
 		done < ${versioncontent}/${propversion}
 
 		# Apply new version to it...
 		version_load_end ${propversion}
 		
    	    else
-		glog user.notice "Upgrade not applying earlier version ${propversion}"
+		glog user.debug "Upgrade not applying earlier version ${propversion}"
 	    fi
 	fi
     done		
