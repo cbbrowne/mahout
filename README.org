@@ -153,10 +153,10 @@ expect the tool to be used:
   SUPERUSERACCESS=postgresql://postgres:7093/oxrsinfo
   CLUSTERDATABASE=postgresql://postgres:7093/postgres
   TESTUSERACCESS=postgresql://oxrslive:7093/oxrsinfo
-  CONFIG_26=/tmp/redwood-upgrade-2.6.conf
-  CONFIG_23y=/tmp/redwood-2.3y-currencies.txt
-  CONFIG_2226=/tmp/registrar-guid-map-2.2.26.csv
-  CONFIG_22=/tmp/registrar-guid-map-2.2.csv
+  CONFIG_26=/tmp/rapp-upgrade-2.6.conf
+  CONFIG_23y=/tmp/rapp-2.3y-currencies.txt
+  CONFIG_2226=/tmp/client-id-map-2.2.26.csv
+  CONFIG_22=/tmp/client-id-map-2.2.csv
 #+END_EXAMPLE
 
 ** Contents of mahout.control
@@ -214,12 +214,12 @@ expect the tool to be used:
     psql 2.2/public.sql
     psql 2.2/app_private.sql
     psql 2.2/adjustment_criteria.sql
-    psql 2.2/migrate_guids.sql REGISTRAR_GUID_FILE=${CONFIG_22}
+    psql 2.2/migrate_ids.sql CLIENT_ID_FILE=${CONFIG_22}
 
   version 2.2.26
     requires 2.2
     psql 2.2.26/public.sql
-    psql 2.2.26/migrate-guids.sql REGISTRAR_GUID_FILE=${CONFIG_2226}
+    psql 2.2.26/migrate-ids.sql CLIENT_ID_FILE=${CONFIG_2226}
 
   version 2.3x
     requires 2.2.26
@@ -255,7 +255,7 @@ expect the tool to be used:
 
   version 2.6
     requires 2.5
-    shell 2.6/prepare-redwood-schema-upgrade.sh ${CONFIG_26}
+    shell 2.6/prepare-rapp-schema-upgrade.sh ${CONFIG_26}
 
   version 2.7
     requires 2.6
@@ -296,7 +296,7 @@ be made.
   - Postgres binaries
   - PostgreSQL URI
 - Version number capture
-  - Redwood uses stuff in ~upgrade_version_to_latest.sh~ to indicate
+  - We use stuff in ~upgrade_version_to_latest.sh~ to indicate
     the version in the ~_oxrsversion~ schema
   - Current stuff is:
     - Branch :: which may become the version label
