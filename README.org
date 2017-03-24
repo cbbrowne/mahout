@@ -2,12 +2,9 @@
 
 ** Derivation
 
-Mahout is the Hindi word for "elephant keeper."  Also considered is
-Pahan, which is the same in Tamil; there appears to be some record of
-"mahout" being used as a perjorative involving cab drivers on Long
-Island near New York City, but that's hopefully obscure enough a
-problem as to be not relevant.  We're certainly not intending to make
-fun of cab drivers!
+Mahout is the Hindi word for "elephant keeper," which fits well with
+this tool being intended to help direct the schemas of a "herd" of
+PostgreSQL database instances.
 
 ** Use Cases
 
