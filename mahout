@@ -558,6 +558,7 @@ function mahout_capture () {
 
     split_versions ${versioncontent}
 
+    local TEMPSQLFILE=`mktemp /tmp/mahout-capture-sql-application.XXXXXXXXXXX`
     versionswanted=false
     for propversion in `cat ${versionorder}`; do
 	if [[ $propversion == ${DBVERSION} ]]; then
@@ -585,7 +586,13 @@ function mahout_capture () {
 			md5sum=`md5sum < ${sqlscript}`
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 			action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
-			psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
+			cat ${sqlscript} >> ${TEMPSQLFILE}
+			echo "create temp table t_ending_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';
+create temp table t_locks_acquired as select nspname, relname, mode from t_ending_locks e where not exists (select 1 from t_starting_locks s where s.nspname = e.nspname and s.relname = e.relname and s.mode = e.mode);
+" >> ${TEMPSQLFILE}
+			echo "\COPY (select nspname, relname, mode from t_locks_acquired) to '${sqlscript}.${propversion}.locks-acquired';" >> ${TEMPSQLFILE}
+			psql -d ${MAINDATABASE} -f ${TEMPSQLFILE} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
@@ -601,7 +608,13 @@ function mahout_capture () {
 			md5sum=`md5sum < ${sqlscript}`
 			echo ${md5sum} > ${sqlscript}.md5sum
 			action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
-			psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
+			cat ${sqlscript} >> ${TEMPSQLFILE}
+			echo "create temp table t_ending_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';
+create temp table t_locks_acquired as select nspname, relname, mode from t_ending_locks e where not exists (select 1 from t_starting_locks s where s.nspname = e.nspname and s.relname = e.relname and s.mode = e.mode);
+" >> ${TEMPSQLFILE}
+			echo "\COPY (select nspname, relname, mode from t_locks_acquired) to '${sqlscript}.${propversion}.locks-acquired';" >> ${TEMPSQLFILE}
+			psql -d ${SUPERUSERACCESS} -f ${TEMPSQLFILE} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "superuser script ${sqlscript} failed against database [${MAINDATABASE}]"

@@ -57,9 +57,20 @@ expect the tool to be used:
    - It also captures checksums (via ~md5sum~) of the referenced
      scripts so we may be certain they are up to date and that they
      have not been altered.
-   - Default is to capture ~.pgcmp~ files for /all/ versions that are
+   - It captures ~.pgcmp~ files for /all/ versions that are
      not captured
-   - Could add an option to stop at a particular version label
+   - It captures lists of locked objects for each ~psql~ and ~superuser~ script, thus:
+     | schema | object name | Lock Acquired       |
+     |--------+-------------+---------------------|
+     | public | t1          | AccessExclusiveLock |
+     | public | t3          | AccessShareLock     |
+     | public | t3          | ShareLock           |
+     This information will be useful in determining how invasive an
+     upgrade will be to a live system.  Locks on tables newly
+     introduced in a particular version will obviously be irrelevant,
+     as a live system can't be referring to those tables until after
+     the upgrade is complete.
+     Look for files with the filename suffix ~.locks-acquired~
    - This is likely to be invoked by developers, perhaps with some integration with build automation
  - ~mahout install~ :: This is used to install a Mahout-managed schema
       in a fresh database.
