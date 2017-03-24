@@ -175,20 +175,20 @@ expect the tool to be used:
         - Everywhere :: Some DML might be appropriate to apply against all nodes in the cluster.  This should be an unusual scenario.
       - SUBSCRIPTION :: Indicates a set of tables to be added to replication via SET ADD TABLE
 
-  Example of ~mahout.control~:
+  Complex example of ~mahout.control~:
 #+BEGIN_EXAMPLE
   # Note that Base is actually version 1.5; that was where we started...
   version Base
     psql Base/base-schema.sql
 
   common tests
-    psqltest from 2.2 to 2.2.26 test/iana-test-1.sql
-    psqltest from 2.2.26 test/iana-test-2.sql
-    psqltest from 2.3y test/portfolio-currency.sql
-    psqltest from 2.2 test/grandfathering.sql
+    psqltest from 2.2 to 2.2.26 test/parent-test-1.sql
+    psqltest from 2.2.26 test/parent-test-2.sql
+    psqltest from 2.3y test/pf-currency.sql
+    psqltest from 2.2 test/gf.sql
     psqltest from 2.6 test/bigint-checks.sql
     psqltest from 2.4 test/message-queuing.sql
-    psqltest from 2.3z test/ro-poll-queue.sql
+    psqltest from 2.3z test/ropq.sql
     psqltest test/all-tables-commented.sql
     psqltest test/all-functions-commented.sql
     psqltest test/table-names-unique.sql
@@ -197,22 +197,22 @@ expect the tool to be used:
     requires Base
     superuser 2.0/drop_roles.sql
     psql 2.0/public.sql
-    psql 2.0/registry_private.sql
-    psql 2.0/registry.sql
+    psql 2.0/app_private.sql
+    psql 2.0/app.sql
     psql 2.0/devtools.sql
     psqltest 2.0/new-feature-in-2.0.sql
 
   version 2.1
     requires 2.0
     psql 2.1/public.sql
-    psql 2.1/registry.sql
+    psql 2.1/app.sql
     psql 2.1/drop_deprecateds.sql
     psql 2.1/devtools.sql
 
   version 2.2
     requires 2.1
     psql 2.2/public.sql
-    psql 2.2/registry_private.sql
+    psql 2.2/app_private.sql
     psql 2.2/adjustment_criteria.sql
     psql 2.2/migrate_guids.sql REGISTRAR_GUID_FILE=${CONFIG_22}
 
@@ -224,34 +224,34 @@ expect the tool to be used:
   version 2.3x
     requires 2.2.26
     psql 2.3x/public.sql
-    psql 2.3x/registry.sql
-    psql 2.3x/registry_private.sql
+    psql 2.3x/app.sql
+    psql 2.3x/app_private.sql
 
   version 2.3y
     requires 2.3x
     psql 2.3y/public.sql
-    psql 2.3y/registry_private.sql
-    psql 2.3y/registry.sql
+    psql 2.3y/app_private.sql
+    psql 2.3y/app.sql
     psql 2.3y/devtools.sql
-    shell 2.3y/migration-currency.sh PORTFOLIO_CURRENCY_FILE=${CONFIG_23y}
-    shell 2.3y/migrate-portfolio-currency.sql
+    shell 2.3y/migration-currency.sh PF_CURRENCY_FILE=${CONFIG_23y}
+    shell 2.3y/migrate-pf-currency.sql
 
   version 2.3z
     requires 2.3y
     psql 2.3z/public.sql
-    psql 2.3z/registry_private.sql
-    psql 2.3z/registry.sql
+    psql 2.3z/app_private.sql
+    psql 2.3z/app.sql
     psql 2.3z/migration-script.sql
 
   version 2.4
     requires 2.3z
-    psql 2.4/registry.sql
+    psql 2.4/app.sql
 
   version 2.5
     requires 2.4
     psql 2.5/public.sql
-    psql 2.5/registry_private.sql
-    psql 2.5/registry.sql
+    psql 2.5/app_private.sql
+    psql 2.5/app.sql
 
   version 2.6
     requires 2.5
@@ -261,8 +261,8 @@ expect the tool to be used:
     requires 2.6
     psql 2.7/globals.sql
     psql 2.7/public.sql
-    psql 2.7/registry_private.sql
-    psql 2.7/registry.sql
+    psql 2.7/app_private.sql
+    psql 2.7/app.sql
 
   version 2.8
     requires 2.7
@@ -276,40 +276,6 @@ expect the tool to be used:
    - Schema Application Logs (akin to what Liquibase does), capturing, for each data file processed, the name of the file, and the timestamps of start/end of processing of each processing step.
    - Note that the version will capture which ~mahout.control~ file was the one that established each version.
    - It should capture ~md5sum~ checksums of the script files so that we can be certain that the latest scripts have been applied and carried around correctly
-** Things Mahout does not itself do that we do today in Universal Schema
-
-These things need to be covered somewhere.
-
-*** Permissions Provisioning
-
-There is a fairly sophisticated permissions model constructed out of:
-  - Matrix of detailed permissions for Registry-services-managed roles
-  - Schema-based (e.g. - granting same permissions for a whole "directory" of objects) for other roles
-
-*** Testing schema for various conditions
-
-There are a set of tests in the ~universal-schema~ build today that
-verify several things:
-
-  - Common rules
-    - Verify that all functions, tables, columns are commented
-    - Verify that all tables have primary keys
-    - Verify that table names are unique
-  - Unit tests
-    - Grandfathering
-    - Message queueing
-    - Policy cuts
-    - Premium pricing
-    - Registry operator poll queue
-    - VAT
-
-*** Automatically generating documentation
-
-We automatically generate documentation using
-  - Schema Spy
-  - PostgreSQL autodoc
-
-
 ** Open questions
  - Can we/should we try to capture ~slonik~ ~SET ADD TABLE~ requests
    by peeking at the application of DDL?
@@ -343,21 +309,6 @@ be made.
   - Successes are no problem; failed schema would be troublesome to get into DB as requests would fail
   - Probably need to determine how to serialize some logs into filesystem
 - Supplemental configuration
-  - 2.6 upgrade needed lots more stuff
-    - Legacy prefix for trids
-    - New prefix for trids
-    - Batch sizes, parallelism
-  - 2.0 upgrade needed portfolio definitions
-  - 2.2 upgrade needed data file with client GUID values
-  - 2.2.26 upgrade neede further IANA ID data
-  - 2.3x to 2.3y added portfolio currency
-  - 2.3y to 2.3z added VAT support
-    - VAT rates by country code
-    - TLDs were assigned country codes
-  - 2.5 to 2.6 needed extensive changes, probably not worth trying to cover here
-    - DML changes to assign prefixes led to extensive DML
-    - There was a full-fledged project, RegistryConsolidate/RedwoodUpgrade
-  - 2.6 to 2.7
 - Standard tests
   - Check that functions all have comments
   - Check that tables and views all have role-based permissions attached to them
@@ -366,11 +317,6 @@ be made.
   - Check that tables and their columns have comments
   - Hooks to allow running custom tests
   - Which tests to run against which versions?
-    - A test for a feature new in Redwood 2.7 shouldn't be run against earlier versions
-    - Common tests, and version-specific tests?
-    - Should they be shell?  Or SQL?
-- Starting point
-  - Let's treat 2.6 as the Beginning of Time, maybe?
 - We'll have several kinds of things to execute...
   - SQL scripts that need to be run
   - Shell scripts that need to be run
@@ -379,11 +325,6 @@ be made.
   - Run ~pgcmp~ to check that schema matches expectations, e.g. - captured ~pgcmp-dump~ matches the schema
   - Need a mechanism that runs ~pgcmp-dump~ to capture schema at various points
   - Run tests, and capture either perfect conformance or counts/details of non-conformance?
-- Special Redwoodisms needing some support
-  - Security model management
-    - Capture the matrix in each version???
-    - Capture schema-based permission configuration each time?
-    - It seems undesirable for the permission set to get duplicated each time, but that's what essentially happens in the Universal Schema matrix-based permission model
 - Seeding
   - Security needs
     - Roles
