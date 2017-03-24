@@ -247,3 +247,12 @@ cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
 (cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
 
+# Now, mess around with the "production" schema and see if mahout diff
+# finds this
+
+DDL="create table extra_table (id serial primary key, description text not null unique);"
+
+(source ${TARGETMHDIR}/mahout.conf;
+ psql -d ${MAINDATABASE} -c "${DDL}" ;
+ cd ${TARGETMHDIR};
+ ${MAHOUT} diff)

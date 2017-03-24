@@ -48,7 +48,7 @@ MAHOUTLOG=.mahout-log
 function glog () {
     local level=$1
     local notice=$2 
-    logger -i -p "${level}" -t "mahout" "${notice}"
+    logger -i -p "${level}" -t "mahout ${SUBCOMMAND}" "${notice}"
     case ${level} in
 	user.debug)
 	    DEBUGS=$((${DEBUGS} + 1))
@@ -1096,8 +1096,45 @@ function mahout_install () {
 function mahout_diff () {
     # use pgcmp to compare current schema in database against what is supposed to be there
     # This might be a good way of generating expected differences...
-    echo "diff Not implemented yet"
-    exit 1    
+
+    # check that we're in a Mahout directory
+    local INMAHOUT
+    local PGCMPOUTPUT
+    
+    INMAHOUT=`in_mahout_home`
+    if [[ ${INMAHOUT} != 0 ]]; then
+	glog user.error "upgrade: not in mahout directory - ${INMAHOUT}"
+	exit 1
+    fi
+    # acquire configuration from mahout.conf
+    source mahout.conf
+
+    # check the version in the database
+    DBVERSION=`get_mahout_version ${MAINDATABASE}`
+    glog user.notice "diff: found version: ${DBVERSION}"
+    
+    # Dump current schema using pgcmp-dump
+    local CURRENTCMP=${PWD}/.mahout-temp/CurrentSchema.pgcmp
+    dump_current_schema CurrentSchema ${CURRENTCMP}
+
+    glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
+    PGCMPWORK=`mktemp -d /tmp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
+    PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    rc=$?
+    case ${rc} in
+	0)
+	    glog user.notice "pgcmp found exact match"
+	    rm -rf ${PGCMPWORK}
+	    ;;
+	2)
+	    glog user.error "pgcmp failed to run properly - see ${PGCMPWORK}/perform-comparison.log"
+	    exit 1
+	    ;;
+	3)
+	    glog user.error "pgcmp found differences inadequately explained - see ${PGCMPWORK}/perform-comparison.log"
+	    exit 2
+	    ;;
+    esac
     summary diff
 }
 
