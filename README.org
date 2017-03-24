@@ -91,7 +91,7 @@ expect the tool to be used:
       a specified version.
    - A ~dry-run~ option should list its plans in detail, providing a
      way that Data Services can know the exact intended application
-     ordering of the pieces to assist them in building ~slonik~ script
+     ordering of the pieces to assist them in building ~slonik~ scripts
  - ~mahout diff~ :: Finds any differences between current version and
                    what is expected (e.g. - use ~pgcmp~ to compare
                    current schema with a captured schema)
@@ -131,29 +131,30 @@ expect the tool to be used:
 
   - If no ~mahout.control~ file is provided, at a given directory
     level, that will be treated as an error that would cause ~mahout~
-    schema application to fail.
+    schema application work to fail.
 
 ** Contents of mahout.conf
 
   - URIs to indicate how to access databases of interest
     - MAINDATABASE :: Contains the URI to be used for processing of schema files.
     - SUPERUSERACCESS :: Contains the URI to be used for anything requiring superuser access
-    - CLUSTERDATABASE :: This indicates the URI of a database suitable for creating databases
+    - COMPARISONDATABASE :: This indicates the URI of a database suitable for doing comparisons using pgcmp
+    - MAHOUTOMITSCHEMAS :: This indicates a set of schemas that are to be ignored when ~pgcmp~ is being used to do comparisons.
+      - It is formatted as an SQL IN clause, so should look like ('pg_catalog','information_schema','MaHoutSchema')
+      - Note that ~mahout.conf~ is handled as a shell script, and, if using bash, quotes will be needed otherwise MAHOUTOMITSCHEMAS will interpret the structure as an array
+    - PGCMPHOME :: Indicates the directory where the ~pgcmp~ comparison tool is installed
+    - MAHOUTSCHEMA :: Indicates the schema in which to put Mahout version and logging information
   - Data files
     - In some cases, external data will be needed, /e.g./ - some
       upgrades required a data file indicating configuration of DML
       changes.
-  - Slonik configuration :: There should be an option to ask ~mahout~ to generate a ~slonik~ script to request for [[http://slony.info][Slony]] to replicate the results across a cluster.
-
 #+BEGIN_EXAMPLE
-  MAINDATABASE=postgresql://oxrsowner:7093/oxrsinfo
-  SUPERUSERACCESS=postgresql://postgres:7093/oxrsinfo
-  CLUSTERDATABASE=postgresql://postgres:7093/postgres
-  TESTUSERACCESS=postgresql://oxrslive:7093/oxrsinfo
-  CONFIG_26=/tmp/rapp-upgrade-2.6.conf
-  CONFIG_23y=/tmp/rapp-2.3y-currencies.txt
-  CONFIG_2226=/tmp/client-id-map-2.2.26.csv
-  CONFIG_22=/tmp/client-id-map-2.2.csv
+COMPARISONDATABASE=postgresql://postgres@localhost:7099/comparisondb
+MAHOUTOMITSCHEMAS="('pg_catalog','information_schema','MaHoutSchema')"
+MAHOUTSCHEMA=MaHoutSchema
+MAINDATABASE=postgresql://postgres@localhost:7099/devdb
+PGCMPHOME=/home/cbbrowne/PostgreSQL/pgcmp
+SUPERUSERACCESS=postgresql://postgres@localhost:7099/postgres
 #+END_EXAMPLE
 
 ** Contents of mahout.control
@@ -162,7 +163,7 @@ expect the tool to be used:
     - The first version is called "Base", and has no predecessor
     - Subsequent versions will indicate their respective predecessor
   - For each file to be loaded there must be a line in ~mahout.control~ indicating processing steps, which include:
-    - psql :: Indicating that the file should be processed using ~psql~ against PGDATABASE
+    - psql :: Indicating that the file should be processed using ~psql~ against MAINDATABASE
     - shell :: Indicating that the file should be run as a shell script, with the values in ~mahout.conf~ loaded into the environment
   - Additional Attributes
     - To support ~slonik~, there may be supplementary attributes to indicate how a step should be applied from a replication perspective.  Some of this is wishful thinking at the moment, but it's desirable...
