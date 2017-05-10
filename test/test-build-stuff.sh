@@ -1,12 +1,30 @@
 #!/bin/bash
 
+set -e -u
+
 # Let's set up a database and put some schema into it as a Base Schema
 PGCMPHOME=${HOME}/PostgreSQL/pgcmp
 DBCLUSTER=postgresql://postgres@localhost:7099
-MAHOUT=${PWD}/../mahout
+MAHOUTHOME=${HOME}/PostgreSQL/mahout
+MAHOUT=${MAHOUTHOME}/mahout
 PROJECTNAME=mhtest
 TARGETDIR=install-target
 TARGETMHDIR=install-target/${PROJECTNAME}
+MAHOUTLOGDIR=${MAHOUTLOG:-"/tmp/mahout-tests"}
+
+if [ -d ${MAHOUTLOGDIR} ]; then
+    MAHOUTLOG=${MAHOUTLOGDIR}/mahout.log
+else
+    mkdir -p ${MAHOUTLOGDIR}
+    MAHOUTLOG=${MAHOUTLOGDIR}/mahout.log
+    echo "initialize mahout.log" > ${MAHOUTLOG}
+fi
+
+if [ -d ${PROJECTNAME} ]; then
+    echo "Project directory ${PROJECTNAME} already there"
+else
+    mkdir -p ${PROJECTNAME}
+fi
 
 clusterdb=${DBCLUSTER}/postgres
 devdb=devdb
@@ -15,6 +33,10 @@ comparisondb=comparisondb
 compuri=${DBCLUSTER}/${comparisondb}
 installdb=installdb
 installuri=${DBCLUSTER}/${installdb}
+
+NOTICES=0
+WARNINGS=0
+PROBLEMS=0
 
 function glog () {
     local level=$1
@@ -28,9 +50,9 @@ function glog () {
 	    echo "${level} test-build-stuff.sh ${notice}"
 	    ;;
     esac
-    if [ -d ${MAHOUTLOG} ]; then
+    if [ -f ${MAHOUTLOG} ]; then
 	when=`date --rfc-3339=seconds`
-	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}/mahout.log
+	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}
     fi
     case ${level} in
 	user.notice)
@@ -63,9 +85,44 @@ psql -d ${devdb} -c "
   create table subschema.t2 (id serial primary key, name text not null unique, created_on timestamptz default now());
 "
 
+glog user.notice "Purge away ./${PROJECTNAME}"
+if [ -d ./${PROJECTNAME} ]; then
+    rm -rf ./${PROJECTNAME}
+else
+    if [ -e ./${PROJECTNAME} ]; then
+	glog user.error "projectname directory [./${PROJECTNAME}] exists and is not a directory"
+	exit 2
+    fi
+fi
+
+glog user.notice "Check availability of pgcmp"
+if [ -d ${PGCMPHOME} ]; then
+    if [ -x ${PGCMPHOME}/pgcmp ]; then
+	glog user.notice "Ready to run pgcmp as ${PGCMPHOME}/pgcmp"
+    else
+	glog user.error "pgcmp not executable as ${PGCMPHOME}/pgcmp"
+	exit 1
+    fi
+else
+    glog user.error "No such directory: ${PGCMPHOME}"
+    exit 1
+fi
+
+glog user.notice "Check availability of mahout"
+if [ -d ${MAHOUTHOME} ]; then
+    if [ -x ${MAHOUTHOME}/mahout ]; then
+	glog user.notice "Ready to run mahout as ${MAHOUTHOME}/mahout"
+    else
+	glog user.error "mahout not executable as ${MAHOUTHOME}/mahout"
+	exit 1
+    fi
+else
+    glog user.error "No such directory: ${MAHOUTHOME}"
+    exit 1
+fi
+
 glog user.notice "Do mahout init to capture that base schema"
 
-rm -rf ./${PROJECTNAME}
 MAHOUTSCHEMA=MaHoutSchema PGCMPHOME=${PGCMPHOME} MAINDATABASE=${devuri} SUPERUSERACCESS=${clusterdb} COMPARISONDATABASE=${compuri} ${MAHOUT} init ${PROJECTNAME}
 
 glog user.notice "Do mahout capture without introducing any changes; expect no change"
