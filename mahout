@@ -1204,12 +1204,6 @@ function mahout_slonik () {
     summary slonik
 }
 
-function mahout_versions () {
-    echo "versions Not implemented yet"
-    exit 1    
-    summary versions
-}
-
 function mahout_changes () {
     echo "changes Not implemented yet"
     exit 1    

@@ -1,0 +1,375 @@
+* Mahout Schema Manager
+
+** Derivation
+
+Mahout is the Hindi word for "elephant keeper."  Also considered is
+Pahan, which is the same in Tamil; there appears to be some record of
+"mahout" being used as a perjorative involving cab drivers on Long
+Island near New York City, but that's hopefully obscure enough a
+problem as to be not relevant.  We're certainly not intending to make
+fun of cab drivers!
+
+** Use Cases
+
+There will be somewhat distinct usage patterns in 4 places where we'd
+expect the tool to be used:
+
+  - Developers :: Setting up schema to be applied
+    - mahout init
+    - mahout attach
+  - Build Process :: Generation of build is done by automated processes
+    - mahout capture
+    - mahout history
+  - QA :: Applying schema changes to sample production schemas
+    - mahout check
+    - mahout attach :: If starting with a database that has not been mahoutized
+    - mahout diff
+    - mahout upgrade
+  - Production Control and/or Data Services :: Deploying changes to production
+    - mahout check
+    - mahout attach
+    - mahout diff
+    - mahout history
+    - mahout slonik
+    - mahout upgrade
+
+
+** Mahout subcommands
+ - ~mahout init directoryname~ :: Checks that it is safe to do so (e.g. - no pre-existing config files)
+   - creates the directory afresh
+   - Initializes a Mahout project
+   - Usually to be done by developers
+   - Establishes ~mahout.conf~ containing URI based on user environment
+   - Creates directory ~base~ as the starting point
+   - Runs ~pg_dump~ to write current schema to ~Base~
+   - Runs ~pgcmp-dump~ to capture the state of ~Base~ as ~.mahout-data/Base.pgcmp~ 
+ - ~mahout validate_control~ :: Checks the hygiene of the control file
+   - make sure that it is well formed, with valid commands
+   - make sure that scripts referenced are all present
+   - make sure that requires all reference versions that are listed
+   - look for version ordering loops using tsort
+ - ~mahout capture~ :: This step is intended to capture ~.pgcmp~ files.
+      It does an install of a specified version, and captures the
+      schema into ~.pgcmp.version~.  
+
+   - It also captures checksums (via ~md5sum~) of the referenced
+     scripts so we may be certain they are up to date and that they
+     have not been altered.
+   - Default is to capture ~.pgcmp~ files for /all/ versions that are
+     not captured
+   - Could add an option to stop at a particular version label
+   - This is likely to be invoked by developers, perhaps with some integration with build automation
+ - ~mahout attach~ :: This is used to indicate that a particular
+                     version should be associated with the present
+                     schema
+   - This is how one would attach Mahout to an existing registry schema in production
+   - User specifies the version of the schema that they believe is in place
+   - Mahout checks that the schema matches the schema for the requested version
+   - If all matches, then Mahout would attach its own metadata to enable future tracking
+   - It captures expected differences for ~pgcmp~
+ - ~mahout check~ :: Asks what version is in the schema indicated by
+                    ~mahout.conf~, and rummages around and checks the
+                    schema against that version using ~pgcmp~
+   - Also verifies that upgrade scripts have not been altered by
+     verifying MD5 checksums
+ - ~mahout upgrade~ :: Performs all upgrades needed to upgrade from the
+      present version (see ~mahout check~) to the last available, or to
+      a specified version.
+   - A ~dry-run~ option should list its plans in detail, providing a
+     way that Data Services can know the exact intended application
+     ordering of the pieces to assist them in building ~slonik~ script
+ - ~mahout diff~ :: Finds any differences between current version and
+                   what is expected (e.g. - use ~pgcmp~ to compare
+                   current schema with a captured schema)
+ - ~mahout slonik~ :: This generates a ~slonik~ script for use with
+                     Slony to perform the specified upgrade.
+   - It only works if the version upgrade(s) /only/ consist of ~psql~ and ~psqltest~ requests; it will fail if there is a ~shell~ step
+   - There needs to be some awareness of what tables are being added so that they may get ~SET ADD TABLE~ added into replication.
+   - Possibly the approach is to drop replication and recreate with the whole set of tables.
+ - ~mahout history~ :: List ~mahout~ upgrade activities performed
+      against the local database
+ - ~mahout changes~ :: This has two perspectives:
+   - List the ~mahout~ scripts that are to be applied so that DBAs can
+     figure out what they need to prepare for Slony application of the
+     schema
+   - List the major objects that change between versions so that we
+     provide useful documentation to downstream users.  They can know
+     such things as
+     - What tables are being added/removed
+     - What tables are being altered
+** Mahout Directory Structure
+
+  A schema repository will consist of a directory structure where the
+  top level will have 2 "control" files, and then a series of
+  directories, each indicating schema code to deployed.
+
+  No further structure is provided, however it should be obvious that
+  setting up a directory structure to group schema scripts together by
+  version would be wise.
+
+  - Configuration control file: ~mahout.conf~
+    This file contains metadata about the databases to be managed.
+
+  - Schema control: ~mahout.control~
+    This file indicates the order in which directories/files should be visited when applying schema changes.
+
+  - If no ~mahout.control~ file is provided, at a given directory
+    level, that will be treated as an error that would cause ~mahout~
+    schema application to fail.
+
+** Contents of mahout.conf
+
+  - URIs to indicate how to access databases of interest
+    - MAINDATABASE :: Contains the URI to be used for processing of schema files.
+    - SUPERUSERACCESS :: Contains the URI to be used for anything requiring superuser access
+    - CLUSTERDATABASE :: This indicates the URI of a database suitable for creating databases
+  - Data files
+    - In some cases, external data will be needed, /e.g./ - some upgrades required a data file corresponding registrars to IANA IDs
+  - Slonik configuration :: There should be an option to ask ~mahout~ to generate a ~slonik~ script to request for [[http://slony.info][Slony]] to replicate the results across a cluster.
+
+#+BEGIN_EXAMPLE
+  MAINDATABASE=postgresql://oxrsowner:7093/oxrsinfo
+  SUPERUSERACCESS=postgresql://postgres:7093/oxrsinfo
+  CLUSTERDATABASE=postgresql://postgres:7093/postgres
+  TESTUSERACCESS=postgresql://oxrslive:7093/oxrsinfo
+  CONFIG_26=/tmp/redwood-upgrade-2.6.conf
+  CONFIG_23y=/tmp/redwood-2.3y-currencies.txt
+  CONFIG_2226=/tmp/registrar-guid-map-2.2.26.csv
+  CONFIG_22=/tmp/registrar-guid-map-2.2.csv
+#+END_EXAMPLE
+
+** Contents of mahout.control
+
+  - It contains a series of versions, and references to the code to install the respective version
+    - The first version is called "Base", and has no predecessor
+    - Subsequent versions will indicate their respective predecessor
+  - For each file to be loaded there must be a line in ~mahout.control~ indicating processing steps, which include:
+    - psql :: Indicating that the file should be processed using ~psql~ against PGDATABASE
+    - shell :: Indicating that the file should be run as a shell script, with the values in ~mahout.conf~ loaded into the environment
+  - Additional Attributes
+    - To support ~slonik~, there may be supplementary attributes to indicate how a step should be applied from a replication perspective.  Some of this is wishful thinking at the moment, but it's desirable...
+      - EXECUTION :: How is the schema change to be applied?
+        - DDL :: DDL should be run via ~EXECUTE SCRIPT~ against the origin node so it then propagates to all other nodes automatically
+        - Master :: Some DML should only be run against the origin node; the consequences will propagate to other nodes automatically
+        - Everywhere :: Some DML might be appropriate to apply against all nodes in the cluster.  This should be an unusual scenario.
+      - SUBSCRIPTION :: Indicates a set of tables to be added to replication via SET ADD TABLE
+
+  Example of ~mahout.control~:
+#+BEGIN_EXAMPLE
+  # Note that Base is actually version 1.5; that was where we started...
+  version Base
+    psql Base/base-schema.sql
+
+  common tests
+    psqltest from 2.2 to 2.2.26 test/iana-test-1.sql
+    psqltest from 2.2.26 test/iana-test-2.sql
+    psqltest from 2.3y test/portfolio-currency.sql
+    psqltest from 2.2 test/grandfathering.sql
+    psqltest from 2.6 test/bigint-checks.sql
+    psqltest from 2.4 test/message-queuing.sql
+    psqltest from 2.3z test/ro-poll-queue.sql
+    psqltest test/all-tables-commented.sql
+    psqltest test/all-functions-commented.sql
+    psqltest test/table-names-unique.sql
+
+  version 2.0
+    requires Base
+    superuser 2.0/drop_roles.sql
+    psql 2.0/public.sql
+    psql 2.0/registry_private.sql
+    psql 2.0/registry.sql
+    psql 2.0/devtools.sql
+    psqltest 2.0/new-feature-in-2.0.sql
+
+  version 2.1
+    requires 2.0
+    psql 2.1/public.sql
+    psql 2.1/registry.sql
+    psql 2.1/drop_deprecateds.sql
+    psql 2.1/devtools.sql
+
+  version 2.2
+    requires 2.1
+    psql 2.2/public.sql
+    psql 2.2/registry_private.sql
+    psql 2.2/adjustment_criteria.sql
+    psql 2.2/migrate_guids.sql REGISTRAR_GUID_FILE=${CONFIG_22}
+
+  version 2.2.26
+    requires 2.2
+    psql 2.2.26/public.sql
+    psql 2.2.26/migrate-guids.sql REGISTRAR_GUID_FILE=${CONFIG_2226}
+
+  version 2.3x
+    requires 2.2.26
+    psql 2.3x/public.sql
+    psql 2.3x/registry.sql
+    psql 2.3x/registry_private.sql
+
+  version 2.3y
+    requires 2.3x
+    psql 2.3y/public.sql
+    psql 2.3y/registry_private.sql
+    psql 2.3y/registry.sql
+    psql 2.3y/devtools.sql
+    shell 2.3y/migration-currency.sh PORTFOLIO_CURRENCY_FILE=${CONFIG_23y}
+    shell 2.3y/migrate-portfolio-currency.sql
+
+  version 2.3z
+    requires 2.3y
+    psql 2.3z/public.sql
+    psql 2.3z/registry_private.sql
+    psql 2.3z/registry.sql
+    psql 2.3z/migration-script.sql
+
+  version 2.4
+    requires 2.3z
+    psql 2.4/registry.sql
+
+  version 2.5
+    requires 2.4
+    psql 2.5/public.sql
+    psql 2.5/registry_private.sql
+    psql 2.5/registry.sql
+
+  version 2.6
+    requires 2.5
+    shell 2.6/prepare-redwood-schema-upgrade.sh ${CONFIG_26}
+
+  version 2.7
+    requires 2.6
+    psql 2.7/globals.sql
+    psql 2.7/public.sql
+    psql 2.7/registry_private.sql
+    psql 2.7/registry.sql
+
+  version 2.8
+    requires 2.7
+    psql 2.8/public.sql
+#+END_EXAMPLE
+
+** Logging to be done
+ - Some output should be captured in files
+ - Some data should be captured in tables in the database
+   - Version number information
+   - Schema Application Logs (akin to what Liquibase does), capturing, for each data file processed, the name of the file, and the timestamps of start/end of processing of each processing step.
+   - Note that the version will capture which ~mahout.control~ file was the one that established each version.
+   - It should capture ~md5sum~ checksums of the script files so that we can be certain that the latest scripts have been applied and carried around correctly
+** Things Mahout does not itself do that we do today in Registry Universal Schema
+
+These things need to be covered somewhere.
+
+*** Permissions Provisioning
+
+There is a fairly sophisticated permissions model constructed out of:
+  - Matrix of detailed permissions for Registry-services-managed roles
+  - Schema-based (e.g. - granting same permissions for a whole "directory" of objects) for other roles
+
+*** Testing schema for various conditions
+
+There are a set of tests in the ~universal-schema~ build today that
+verify several things:
+
+  - Common rules
+    - Verify that all functions, tables, columns are commented
+    - Verify that all tables have primary keys
+    - Verify that table names are unique
+  - Unit tests
+    - Grandfathering
+    - Message queueing
+    - Policy cuts
+    - Premium pricing
+    - Registry operator poll queue
+    - VAT
+
+*** Automatically generating documentation
+
+We automatically generate documentation using
+  - Schema Spy
+  - PostgreSQL autodoc
+
+
+** Open questions
+ - Can we/should we try to capture ~slonik~ ~SET ADD TABLE~ requests
+   by peeking at the application of DDL?
+
+** Unorganized Requirement Ideas
+The upgrade system needs to identify and control all schema changes to
+be made.
+
+- User that runs updates
+  - Usually should be schema owner
+  - Some changes must be handled via superuser
+- Multiple SQL scripts
+  - Need a mechanism to order them
+- Nice to have: ensure DDL and DML do not get done in the same script
+  - Can this be verified automatically?
+- Configuration file that indicates
+  - Place to log things
+  - Postgres binaries
+  - PostgreSQL URI
+- Version number capture
+  - Redwood uses stuff in ~upgrade_version_to_latest.sh~ to indicate
+    the version in the ~_oxrsversion~ schema
+  - Current stuff is:
+    - Branch :: which may become the version label
+    - Generated on host :: Reasonable for Mahout to do differently
+    - Generated at time :: Reasonable for Mahout to do differently
+    - SCM checkout information :: Reasonable for Mahout to do differently
+- Log activity
+  - For each sub-component, identify what was run, when it ran, how long it took
+  - Some may go into database
+  - Successes are no problem; failed schema would be troublesome to get into DB as requests would fail
+  - Probably need to determine how to serialize some logs into filesystem
+- Supplemental configuration
+  - 2.6 upgrade needed lots more stuff
+    - Legacy prefix for trids
+    - New prefix for trids
+    - Batch sizes, parallelism
+  - 2.0 upgrade needed portfolio definitions
+  - 2.2 upgrade needed data file with client GUID values
+  - 2.2.26 upgrade neede further IANA ID data
+  - 2.3x to 2.3y added portfolio currency
+  - 2.3y to 2.3z added VAT support
+    - VAT rates by country code
+    - TLDs were assigned country codes
+  - 2.5 to 2.6 needed extensive changes, probably not worth trying to cover here
+    - DML changes to assign prefixes led to extensive DML
+    - There was a full-fledged project, RegistryConsolidate/RedwoodUpgrade
+  - 2.6 to 2.7
+- Standard tests
+  - Check that functions all have comments
+  - Check that tables and views all have role-based permissions attached to them
+  - Check that tables all have primary keys-
+  - Check that tables have unique names
+  - Check that tables and their columns have comments
+  - Hooks to allow running custom tests
+  - Which tests to run against which versions?
+    - A test for a feature new in Redwood 2.7 shouldn't be run against earlier versions
+    - Common tests, and version-specific tests?
+    - Should they be shell?  Or SQL?
+- Starting point
+  - Let's treat 2.6 as the Beginning of Time, maybe?
+- We'll have several kinds of things to execute...
+  - SQL scripts that need to be run
+  - Shell scripts that need to be run
+  - Might there be some Python?
+- Various pre- and post-conditions
+  - Run ~pgcmp~ to check that schema matches expectations, e.g. - captured ~pgcmp-dump~ matches the schema
+  - Need a mechanism that runs ~pgcmp-dump~ to capture schema at various points
+  - Run tests, and capture either perfect conformance or counts/details of non-conformance?
+- Special Redwoodisms needing some support
+  - Security model management
+    - Capture the matrix in each version???
+    - Capture schema-based permission configuration each time?
+    - It seems undesirable for the permission set to get duplicated each time, but that's what essentially happens in the Universal Schema matrix-based permission model
+- Seeding
+  - Security needs
+    - Roles
+      - What to do about the possibility of needful roles evolving over time?
+    - Basic users
+      - Basic information needed will be
+        - Owner
+        - Superuser (hopefully little needed)
+- Version and tagging model
+
