@@ -877,7 +877,6 @@ function mahout_upgrade () {
     esac
 
     # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
-
     local depfodder=`mktemp /tmp/mahout-upgrade-dependency-fodder.XXXXXXXXXXXX`
     local dependencies=`mktemp /tmp/mahout-upgrade-dependencies.XXXXXXXXXXXX`
     local versionorder=`mktemp /tmp/mahout-upgrade-version-order.XXXXXXXXXXXX`
@@ -1138,16 +1137,71 @@ function mahout_diff () {
     summary diff
 }
 
+function report_on_version () {
+    local VERSION=$1
+    psql -d ${MAINDATABASE} -xqtA -F : -c "select install_start, install_end from \"${MAHOUTSCHEMA}\".version_log where version='${VERSION}';"
+    echo ""
+    glog user.notice "Steps for version ${VERSION}"
+    echo ""
+    psql -d ${MAINDATABASE} -xqtA -F : -c "select action_start, action_end, version, action, action_type, action_source, result, success from \"${MAHOUTSCHEMA}\".action_log where version='${VERSION}' order by action_start;"
+}
+
+function mahout_history () {
+    ## List the upgrade activities performed against this database
+    # check that we're in a Mahout directory
+    local INMAHOUT
+    local PGCMPOUTPUT
+    
+    INMAHOUT=`in_mahout_home`
+    if [[ ${INMAHOUT} != 0 ]]; then
+	glog user.error "upgrade: not in mahout directory - ${INMAHOUT}"
+	exit 1
+    fi
+
+    # acquire configuration from mahout.conf
+    source mahout.conf
+
+    # check the version in the database
+    DBVERSION=`get_mahout_version ${MAINDATABASE}`
+    glog user.notice "history: Schema on version: ${DBVERSION}"
+    echo ""
+
+    # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
+    local depfodder=`mktemp /tmp/mahout-history-dependency-fodder.XXXXXXXXXXXX`
+    local dependencies=`mktemp /tmp/mahout-history-dependencies.XXXXXXXXXXXX`
+    local versionorder=`mktemp /tmp/mahout-history-version-order.XXXXXXXXXXXX`
+    local versioncontent=`mktemp -d /tmp/mahout-history-version-content.XXXXXXXXXXXX`
+
+    calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
+    split_versions ${versioncontent}
+
+    futureversions=false
+    for propversion in `cat ${versionorder}`; do
+	glog user.notice "Examining version ${propversion}"
+	if [[ $propversion == ${DBVERSION} ]]; then
+	    # We have reached the point at which versions should get captured
+	    futureversions=true
+	    glog user.notice "Found current version ${propversion} - later versions have not been applied"
+	    report_on_version "${propversion}"
+	else
+	    if [[ $futureversions == "true" ]]; then
+		glog user.notice "version ${propversion} has not been applied"
+	    else
+		glog user.notice "version ${propversion} has been applied"
+		report_on_version "${propversion}"
+	    fi
+	fi
+    done
+
+    # Clean up afterwards
+    rm -rf ${depfodder} ${dependencies} ${versionorder} ${versioncontent}
+    summary history
+}
+
 function mahout_slonik () {
     echo "slonik Not implemented yet"
     exit 1    
     summary slonik
-}
-
-function mahout_history () {
-    echo "versions Not implemented yet"
-    exit 1    
-    summary history
 }
 
 function mahout_versions () {
