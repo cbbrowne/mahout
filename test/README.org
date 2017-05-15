@@ -2,3 +2,49 @@
 
   This section implements some tests to validate expected parts of
   mahout that should work.
+
+  ~test-build-stuff.sh~ sets up databases, generates Mahout
+  configuration, and modifies it, in order to run tests to validate
+  "happy paths" of some usual Mahout behaviours.
+
+  Examining ~test-build-stuff.sh~ and the resulting ~mhtest~ directory
+  should be useful in revealing intended usage patterns for ~mahout~.
+
+** Environmental setup
+
+All of these default to use some particular values that work in one of
+the developers' environments; feel free to assign values via export to
+point to a preferred environment.
+
+ - PGCMPHOME :: Location of ~pgcmp~ tool
+ - DBCLUSTER :: Postgres database instance where it will set up databases
+   - The test tool generates databases ~devdb~, ~comparisondb~,
+     ~installdb~; it is probably wise for the database instance to be
+     devoted to the mahout test so you are not surprised about it
+     dropping/creating databases unexpectedly
+ - MAHOUTHOME :: Location of ~mahout~ tool
+ - TARGETDIR :: Location in which to set up a Mahout test
+ - MAHOUTLOGDIR :: Location in which to generate logs from Mahout tests
+
+** Logging
+
+Logs of mahout and mahout tests are stored in a log file in
+MAHOUTLOGDIR as well as being logged using ~/usr/bin/logger~ (which
+commonly pushes log entries into ~/var/log/messages~).
+
+** Environmental tests
+
+  ~test-build-stuff.sh~ starts by checking for availability of ~pgcmp~
+  and ~mahout~.
+
+** Mahout Runs
+
+ - The ~devdb~ database is initialized to have a couple of tables to
+   "seed" it with an initial version
+ - ~mahout init~ is used to capture that initial version as the ~Base~
+   version.
+ - Some common tests are added to the control file
+   - A "null" test always succeeds
+   - A "pk" test verifies the policy that /all tables must have a primary key/
+   - A "multiply-defined" test verifies the policy that /relation names must be unique/, even across schemas
+     - This is (arguably) useful in preventing creating relations that can mask others by name
