@@ -3,14 +3,15 @@
 set -e -u
 
 # Let's set up a database and put some schema into it as a Base Schema
-PGCMPHOME=${HOME}/PostgreSQL/pgcmp
-DBCLUSTER=postgresql://postgres@localhost:7099
-MAHOUTHOME=${HOME}/PostgreSQL/mahout
-MAHOUT=${MAHOUTHOME}/mahout
+PGCMPHOME=${PGCMPHOME:-${HOME}/PostgreSQL/pgcmp}
+DBCLUSTER=${DBCLUSTER:-"postgresql://postgres@localhost:7099"}
+MAHOUTHOME=${MAHOUTHOME:-${HOME}/PostgreSQL/mahout}
 PROJECTNAME=mhtest
-TARGETDIR=install-target
+TARGETDIR=${TARGETDIR:-"install-target"}
 TARGETMHDIR=install-target/${PROJECTNAME}
 MAHOUTLOGDIR=${MAHOUTLOG:-"/tmp/mahout-tests"}
+
+MAHOUT=${MAHOUTHOME}/mahout
 
 if [ -d ${MAHOUTLOGDIR} ]; then
     MAHOUTLOG=${MAHOUTLOGDIR}/mahout.log
