@@ -1198,12 +1198,6 @@ function mahout_history () {
     summary history
 }
 
-function mahout_slonik () {
-    echo "slonik Not implemented yet"
-    exit 1    
-    summary slonik
-}
-
 function mahout_changes () {
     echo "changes Not implemented yet"
     exit 1    
@@ -1214,6 +1208,12 @@ function mahout_attach () {
     echo "changes Not implemented yet"
     exit 1    
     summary attach
+}
+
+function mahout_slonik () {
+    echo "slonik Not implemented yet"
+    exit 1    
+    summary slonik
 }
 
 case $SUBCOMMAND in
