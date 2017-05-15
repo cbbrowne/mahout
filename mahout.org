@@ -33,7 +33,6 @@ expect the tool to be used:
     - mahout slonik
     - mahout upgrade
 
-
 ** Mahout subcommands
  - ~mahout init directoryname~ :: Checks that it is safe to do so (e.g. - no pre-existing config files)
    - creates the directory afresh
@@ -429,7 +428,32 @@ We automatically generate documentation using
   - Schema Spy
   - PostgreSQL autodoc
 
+** Prerequisites
 
+   What do you need to have available in order to run mahout?
+
+   - bash :: Mahout is written in Bash
+   - PostgreSQL :: A reasonably modern version; probably 9.3 is modern enough.
+     - psql :: SQL is run using ~psql~
+     - pg_dump :: Schema dump for the "Base" version is captured using ~pg_dump~
+   - logger :: Logger is used to capture logs centrally
+   - date :: Captures dates
+   - pgcmp :: Mahout uses ~pgcmp~ to compare schema versions in order
+              to ensure that schemas are not corrupted in
+              transmission.
+   - md5sum :: Used to detect if schema scripts have been modified/corrupted in transmission
+     - Note that we are not doing anything "cryptographically strong"
+       with this; it would be easy enough for someone trying to defeat
+       the checksums to simply replace them, and that would be
+       impractical to prevent.
+   - String tools
+     - cut
+     - sed
+     - egrep
+     - cat
+   - tsort :: Used to do a topological sort to determine the ordering
+              that falls from version dependencies.
+   
 ** Open questions
  - Can we/should we try to capture ~slonik~ ~SET ADD TABLE~ requests
    by peeking at the application of DDL?
