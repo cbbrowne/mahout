@@ -11,31 +11,29 @@ help () {
 mahout: a schema management tool for PostgreSQL
 
 mahout commands:
- mahout init
+ mahout init [PROJECTNAME]
     Initializes a mahout project
  mahout capture
     Captures pgcmp files to use for database schema comparisons
- mahout attach
-    Attaches a particular version label to the present database schema
+ mahout attach [VERSION]
+    Initializes the present non-mahoutized database schema to the specified
+    version.  Fail if the schema does not match that version.
  mahout install
     Installs a mahout-managed schema in a blank database
  mahout check
     Checks the version indicated by mahout.conf and checks the schema against
     that version using pgcmp
  mahout upgrade
-    Performs an upgrade from the present version to the latest/specified version
+    Performs an upgrade from the present version to the latest version
  mahout diff
     Finds differences between the current version and what is expected
- mahout slonik
-    Prepares a slonik script to install replication against the latest/specified version
  mahout history
     List mahout upgrade activities performed against the local database
- mahout versions
-    Walk through configuration to get all available versions, and check
-    which have been applied against the database
  mahout changes
     List mahout scripts to be applied.
     List objects that are being changed by the upgrade
+ mahout slonik
+    Prepares a slonik script to install replication against the latest/specified version
 "
 }
 
@@ -1198,16 +1196,27 @@ function mahout_history () {
     summary history
 }
 
+function mahout_attach () {
+    # Needs to know the version believed to be in place
+    # Needs to have a pgcmp "expected differences" file to indicate what
+    #   differences are acceptable; need to be quite strict about this!
+
+    # run pgcmp to see differences versus the specified version
+    # any unexpected differences lead to failing the install
+
+    # But if there are no differences, then we need to add mahout
+    # schema as is added by mahout install/init, and indicate
+    # that it was marked as OK with the specified version
+
+    
+    echo "changes Not implemented yet"
+    summary attach
+}
+
 function mahout_changes () {
     echo "changes Not implemented yet"
     exit 1    
     summary changes
-}
-
-function mahout_attach () {
-    echo "changes Not implemented yet"
-    exit 1    
-    summary attach
 }
 
 function mahout_slonik () {
@@ -1218,13 +1227,13 @@ function mahout_slonik () {
 
 case $SUBCOMMAND in
    init)
-       mahout_init ${PARM1} ${PARM2}
+       mahout_init ${PARM1}
        ;;
    capture)
        mahout_capture
        ;;
    attach)
-       mahout_attach
+       mahout_attach ${PARM1}
        ;;
    check)
        mahout_check
@@ -1243,9 +1252,6 @@ case $SUBCOMMAND in
        ;;
    history)
        mahout_history
-       ;;
-   versions)
-       mahout_versions
        ;;
    changes)
        mahout_changes
