@@ -6,11 +6,11 @@ set -e -u
 PGCMPHOME=${PGCMPHOME:-${HOME}/PostgreSQL/pgcmp}
 DBCLUSTER=${DBCLUSTER:-"postgresql://postgres@localhost:7099"}
 MAHOUTHOME=${MAHOUTHOME:-${HOME}/PostgreSQL/mahout}
-PROJECTNAME=mhtest
 TARGETDIR=${TARGETDIR:-"install-target"}
-TARGETMHDIR=install-target/${PROJECTNAME}
 MAHOUTLOGDIR=${MAHOUTLOG:-"/tmp/mahout-tests"}
 
+PROJECTNAME=mhtest
+TARGETMHDIR=install-target/${PROJECTNAME}
 MAHOUT=${MAHOUTHOME}/mahout
 
 if [ -d ${MAHOUTLOGDIR} ]; then
@@ -34,6 +34,8 @@ comparisondb=comparisondb
 compuri=${DBCLUSTER}/${comparisondb}
 installdb=installdb
 installuri=${DBCLUSTER}/${installdb}
+proddb=proddb
+produri=${DBCLUSTER}/${proddb}
 
 NOTICES=0
 WARNINGS=0
@@ -70,7 +72,7 @@ function glog () {
 
 
 # Drop databases and then create them
-for i in ${devdb} ${comparisondb} ${installdb}; do
+for i in ${devdb} ${comparisondb} ${installdb} ${proddb}; do
     glog user.notice "Drop and recreate database ${i} on cluster ${clusterdb}"
     psql -d ${clusterdb} \
 	 -c "drop database if exists ${i};"
@@ -310,7 +312,27 @@ fix_install_uri
 
 DDL="create table extra_table (id serial primary key, description text not null unique);"
 
-(source ${TARGETMHDIR}/mahout.conf;
- psql -d ${MAINDATABASE} -c "${DDL}" ;
- cd ${TARGETMHDIR};
- ${MAHOUT} diff)
+# (source ${TARGETMHDIR}/mahout.conf;
+#  psql -d ${MAINDATABASE} -c "${DDL}"; 
+#  cd ${TARGETMHDIR};
+#  ${MAHOUT} diff;
+#  rc=$?;
+#  glog user.notice "mahout diff complete - rc=[${rc}]")
+
+### Create a database and use "mahout attach" to attach a database to
+### it
+
+psql -d ${clusterdb} \
+     -c "drop database if exists ${proddb};"
+psql -d ${clusterdb} \
+     -c "create database ${i} template ${devdb};"
+
+# It's a clone of the dev schema, so we need to drop the MAHOUT schema
+psql -d ${produri} \
+     -c "drop schema \"MaHoutSchema\" cascade;"
+
+# modify control file to indicate the production DB
+echo "# use Production database now" >> ${TARGETMHDIR}/mahout.conf
+echo "MAINDATABASE=${produri}" >> ${TARGETMHDIR}/mahout.conf
+(cd ${TARGETMHDIR}; 
+ ${MAHOUT} attach 1.4)

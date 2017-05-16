@@ -34,6 +34,8 @@ mahout commands:
     List objects that are being changed by the upgrade
  mahout slonik
     Prepares a slonik script to install replication against the latest/specified version
+ validate_control
+    Runs validation tests on the mahout.control file
 "
 }
 
@@ -966,6 +968,15 @@ function mahout_upgrade () {
     summary upgrade
 }
 
+function mahout_initialize_schema () {
+    echo "begin;  create schema if not exists \"${MAHOUTSCHEMA}\";  set search_path to \"${MAHOUTSCHEMA}\";
+    create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
+    create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
+  truncate version_log;
+  truncate action_log;"
+
+}
+
 function mahout_install () {
     # check that we're in a Mahout directory
     local INMAHOUT
@@ -988,13 +999,9 @@ function mahout_install () {
     fi
 
     local SETUPQ=`mktemp /tmp/mahout-install-setup.XXXXXXXXXXXXXX`
-    echo "begin;  create schema if not exists \"${MAHOUTSCHEMA}\";  set search_path to \"${MAHOUTSCHEMA}\";
-    create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
-    create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
-  truncate version_log;
-  truncate action_log;
-  insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'install mahout', 'MahoutInstall', 'install', 'mahout', 'initialized', 't');
-  commit;" > ${SETUPQ}
+    mahout_initialize_schema > ${SETUPQ}
+    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'install mahout', 'MahoutInstall', 'install', 'mahout', 'initialized', 't');
+  commit;" >> ${SETUPQ}
 
     psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
     retcode=$?
@@ -1197,19 +1204,89 @@ function mahout_history () {
 }
 
 function mahout_attach () {
-    # Needs to know the version believed to be in place
-    # Needs to have a pgcmp "expected differences" file to indicate what
-    #   differences are acceptable; need to be quite strict about this!
+    local PRODVERSION=${PARM1}
+    local CMPDATA
+    # check that we're in a Mahout directory
+    local INMAHOUT
+    local PGCMPOUTPUT
+
+    INMAHOUT=`in_mahout_home`
+    if [[ ${INMAHOUT} != 0 ]]; then
+	glog user.error "attach: not in mahout directory - ${INMAHOUT}"
+	exit 1
+    fi
+    
+    # acquire configuration from mahout.conf
+    source mahout.conf
+    glog user.notice "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
+
+    # Verify that the version PRODVERSION matches against a valid
+    # version, e.g. - one where there is a dump found in .mahout-data
+    CMPDATA=${PWD}/.mahout-data/${PRODVERSION}.pgcmp
+    if [[ -e ${CMPDATA} ]]; then
+	glog user.notice "Found comparison data for version - [${CMPDATA}]"
+    else
+	glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
+	exit 1
+    fi
+    
+    # Verify that the database does NOT have Mahout installed, e.g. -
+    # no Mahout schema
+    query="select count(1) from pg_catalog.pg_namespace where nspname = '${MAHOUTSCHEMA}';"
+    scount=`psql -d ${MAINDATABASE} -c "${query}" -qAt`
+    if [[ ${scount} != 0 ]]; then
+	glog user.error "attach: main database already has ${MAHOUTSCHEMA} schema - apparently already mahout-ized"
+	exit 1
+    fi
+   
+    # Most likely needs to have a pgcmp "expected differences" file to
+    # indicate what differences are acceptable; need to be quite
+    # strict about this!
 
     # run pgcmp to see differences versus the specified version
     # any unexpected differences lead to failing the install
+    LABEL="production-${PRODVERSION}"
+    CAPTUREFILE=${PWD}/.mahout-temp/attach-${PRODVERSION}.pgcmp
+    dump_current_schema "${LABEL}" ${CAPTUREFILE}
+
+    # Now, run pgcmp against the two schemas:
+    PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
+    PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    rc=$?
+    case ${rc} in
+	0)
+	    glog user.notice "pgcmp found exact match"
+	    rm -rf ${PGCMPWORK}
+	    ;;
+	2)
+	    glog user.error "pgcmp failed to run properly - see ${PGCMPWORK}/perform-comparison.log"
+	    exit 1
+	    ;;
+	3)
+	    glog user.error "pgcmp found differences inadequately explained - see ${PGCMPWORK}/perform-comparison.log"
+	    exit 2
+	    ;;
+    esac
 
     # But if there are no differences, then we need to add mahout
     # schema as is added by mahout install/init, and indicate
     # that it was marked as OK with the specified version
+    local SETUPQ=`mktemp /tmp/mahout-attach-setup.XXXXXXXXXXXXXX`
+    mahout_initialize_schema > ${SETUPQ}
+    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
+    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', now(), clock_timestamp());
+  commit;" >> ${SETUPQ}
 
-    
-    echo "changes Not implemented yet"
+    psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
+    retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Unable to setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
+	exit 1
+    else
+	glog user.notice "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
+	rm -f ${SETUPQ}
+    fi
+    glog user.notice "mahout attach completed for version [${PRODVERSION}] in database [${MAINDATABASE}]"
     summary attach
 }
 
