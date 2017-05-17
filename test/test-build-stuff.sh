@@ -307,18 +307,6 @@ cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
 (cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
 
-# Now, mess around with the "production" schema and see if mahout diff
-# finds this
-
-DDL="create table extra_table (id serial primary key, description text not null unique);"
-
-# (source ${TARGETMHDIR}/mahout.conf;
-#  psql -d ${MAINDATABASE} -c "${DDL}"; 
-#  cd ${TARGETMHDIR};
-#  ${MAHOUT} diff;
-#  rc=$?;
-#  glog user.notice "mahout diff complete - rc=[${rc}]")
-
 ### Create a database and use "mahout attach" to attach a database to
 ### it
 
@@ -336,3 +324,21 @@ echo "# use Production database now" >> ${TARGETMHDIR}/mahout.conf
 echo "MAINDATABASE=${produri}" >> ${TARGETMHDIR}/mahout.conf
 (cd ${TARGETMHDIR}; 
  ${MAHOUT} attach 1.4)
+
+# Now, mess around with the "production" schema and see if mahout diff
+# finds this
+
+DDL="create table extra_table (id serial primary key, description text not null unique);"
+
+(source ${TARGETMHDIR}/mahout.conf;
+ psql -d ${MAINDATABASE} -c "${DDL}"; 
+ cd ${TARGETMHDIR};
+ ${MAHOUT} diff;
+)
+
+if [ $? -eq 0 ]; then
+    glog user.notice "Problem: mahout diff did not notice induced changes"
+else
+    glog user.error "Found differences, as expected"
+fi
+
