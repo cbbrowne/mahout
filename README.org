@@ -174,6 +174,10 @@ expect the tool to be used:
    - This has not yet been implemented; perhaps it is irrelevant in
      that these changes are reflected automatically by the DDL scripts
      referenced by the control script.
+ - ~mahout build~ :: This takes the contents of the current Mahout
+                     directory, and generates an archive containing
+                     all of the data.
+   - It is essentially a way of avoiding the need to run ~tar cfvz schema-version.tar.gz~
  - ~mahout slonik~ :: This generates a ~slonik~ script for use with
                      Slony to perform the specified upgrade.
    - It only works if the version upgrade(s) /only/ consist of ~psql~ and ~psqltest~ requests; it will fail if there is a ~shell~ step
