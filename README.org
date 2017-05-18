@@ -1,8 +1,53 @@
 * Mahout Schema Manager
 
-** Derivation
+  What is Mahout?  Mahout is a /schema manager/ intended to ease the
+  process of deploying database schema changes for PostgreSQL.
 
-Mahout is the Hindi word for "elephant keeper."  Also considered is
+  Deploying schema changes may be very simple if you are merely
+  managing a "personal" database where it is reasonable to deploy
+  changes in-place.
+
+  On the other hand, when deploying database-based applications into
+  sophisticated production environments, it is crucial to be able to
+  consistently duplicate the process of deploying schemas and upgrades
+  in development, test, and production environments.  That is what
+  Mahout tries to make a bit easier.
+
+** Other Schema Managers
+
+  There are a number of toolsets out there that do notionally similar
+  things.
+
+  - Sqitch :: Is a Perl-based system that supports building schema
+              upgrade scripts for PostgreSQL databases.
+  - Liquibase :: Supports a number of databases, implemented in Java.
+  - Flyway :: Supports a number of databases, implemented in Java.
+
+In contrast with them, Mahout
+  - Only supports PostgreSQL; it makes no attempt to support other
+    databases.
+  - Prefers using SQL scripts as the representation of schemas
+    (Liquibase seems to prefer representing database schema in an XML
+    schema).
+  - Has a very low "deployment footprint"; its prerequisites are minor:
+    - psql :: Which you already had available if you are using PostgreSQL
+    - bash :: Which you almost certainly already have around
+    - pgcmp :: This is a schema comparison tool that mainly uses ~psql~ and ~bash~
+    - tsort :: Part of GNU Core Utilities, used to work out dependency maps
+  - Audits changes /extensively/; Mahout uses ~pgcmp~ to ensure that
+    if you are attempting to deploy a change into production, and
+    someone has been messing around with database schemas, you will be
+    made aware of this /before/ you get half-way through deploying a
+    set of schema changes.
+
+** Derivation of the name Mahout
+
+Mahout is the Hindi word for "elephant keeper;" as the PostgreSQL
+project uses an elephant as its "visual mascot," it seems appropriate
+to use "mahout" to describe a tool that helps keep database schemas
+under control.
+
+Also considered is
 Pahan, which is the same in Tamil; there appears to be some record of
 "mahout" being used as a perjorative involving cab drivers on Long
 Island near New York City, but that's hopefully obscure enough a
@@ -15,23 +60,41 @@ There will be somewhat distinct usage patterns in 4 places where we'd
 expect the tool to be used:
 
   - Developers :: Setting up schema to be applied
-    - mahout init
-    - mahout attach
+    - mahout init :: To set up a schema to be managed using mahout,
+                     most likely in an SCM repository.
+    - Later changes are made by adding SQL DDL scripts and control
+      file entries to indicate how the DDL scripts are assembled to
+      indicate how to upgrade from version to version.
+    - If automated build management tools like QuickBuild, Jenkins, Maven are used to manage the deployment of builds, this may be all that developers do themselves.
+    - mahout install, mahout upgrade :: When developers prepare test
+         environments for unit tests, they will likely use these
+         Mahout commands too.
   - Build Process :: Generation of build is done by automated processes
-    - mahout capture
-    - mahout history
+    - mahout capture :: This generates authoritative logged information about by-version Schema information.
+    - mahout build :: This provides a nice shortcut to generate an
+                      archive file comprising the bundle of schema
+                      information that needs to be carried downstream.
   - QA :: Applying schema changes to sample production schemas
-    - mahout check
-    - mahout attach :: If starting with a database that has not been /mahoutized/
-    - mahout diff
-    - mahout upgrade
+    - mahout check :: This checks the schema in the database out to
+                      see if it matches the version it claims to be
+                      on, and verifies that Mahout data has not been
+                      tampered with.
+    - mahout attach :: If starting with a database that has not yet
+                       been /mahoutized/.
+    - mahout diff :: Analyzes the current database schema for
+                     differences against the version which it claims
+                     to represent.
+    - mahout upgrade :: Runs, in order, the needful DDL scripts to
+                        upgrade the schema to the latest version.
   - Production Control and/or Data Services :: Deploying changes to production
-    - mahout check
-    - mahout attach
-    - mahout diff
-    - mahout history
-    - mahout slonik
-    - mahout upgrade
+    - mahout attach :: Only needed if attaching Mahout to a previously
+                       deployed database that predates Mahout.
+    - mahout check :: Verify that the production database is in good condition to be upgraded.
+    - mahout diff :: Analyzes the production database schema for differences against the development schema.
+    - mahout history :: List mahout activities against the production database
+    - mahout upgrade :: Runs, in order, the needful DDL scripts to
+                        upgrade the schema to the latest version.
+    - mahout slonik :: Prepares scripts for use with Slony-I
 
 ** Mahout subcommands
  - ~mahout init directoryname~ :: Checks that it is safe to do so (e.g. - no pre-existing config files)
