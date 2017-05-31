@@ -114,6 +114,15 @@ function mahout_init () {
     echo "# COMPARISONDATABASE: URI for comparison database to be used for comparisons" >> ${MO}
     echo "COMPARISONDATABASE=${MCL}" >> ${MO}
 
+    GITIGNORE=${MAHOUTHOME}/.gitignore
+    echo "# Default git ignores" > ${GITIGNORE}
+    echo ".mahout-data" >> ${GITIGNORE}
+    echo ".mahout-logs" >> ${GITIGNORE}
+    echo ".mahout-temp" >> ${GITIGNORE}
+    echo "*.md5sum" >> ${GITIGNORE}
+    echo "*.locks-acquired" >> ${GITIGNORE}
+    echo "*.log" >> ${GITIGNORE}
+
     if [ "${MSU}" == "${MDB}" ]; then
 	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Superuser connection (SUPERUSERACCESS=[${MSU}]"
     fi
@@ -1296,6 +1305,29 @@ function mahout_changes () {
     summary changes
 }
 
+function mahout_build () {
+    local BTYPE=$1
+    local BNAME=$2
+    case $BTYPE in
+	tar)
+	    tar cfv $BNAME stuff
+	    ;;
+	tar.gz)
+	    tar cfvz $BNAME stuff
+	    ;;
+	tar.bz)
+	    tar cfvj $BNAME stuff
+	    ;;
+	zip)
+	    zip $BNAME stuff
+	    ;;
+	*)
+	    glog user.error "Invalid build type: [${BTYPE}] - must be one of (tar, tar.gz, tar.bz, zip)"
+	    ;;
+    esac
+    summary build
+}
+
 function mahout_slonik () {
     echo "slonik Not implemented yet"
     exit 1    
@@ -1335,6 +1367,9 @@ case $SUBCOMMAND in
        ;;
    validate_control)
        validate_control
+       ;;
+   build)
+       mahout_build ${PARM1} ${PARM2}
        ;;
    *)
        echo "Invalid subcommand - [${COMMAND}]"
