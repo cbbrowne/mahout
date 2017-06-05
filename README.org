@@ -178,11 +178,20 @@ expect the tool to be used:
                      directory, and generates an archive containing
                      all of the data.
    - It is essentially a way of avoiding the need to run ~tar cfvz schema-version.tar.gz~
- - ~mahout slonik~ :: This generates a ~slonik~ script for use with
+ - ~mahout slonik~ :: This generates ~slonik~ scripts for use with
                      Slony to perform the specified upgrade.
-   - It only works if the version upgrade(s) /only/ consist of ~psql~ and ~psqltest~ requests; it will fail if there is a ~shell~ step
-   - There needs to be some awareness of what tables are being added so that they may get ~SET ADD TABLE~ added into replication.
-   - Possibly the approach is to drop replication and recreate with the whole set of tables.
+   - It only works if the version upgrade(s) /only/ consist of ~psql~
+     and ~psqltest~ requests; it will /fail/ if there is a ~shell~
+     step.
+   - It generates a slonik script with the following:
+     - a pre-amble reference to allow set IDs and connection paths to be defined by an administrator
+     - an EXECUTE SCRIPT request for each ~psql~ script, to apply DDL to the cluster
+     - a CREATE SET request, for the new tables and sequences that are added
+     - a SET ADD TABLE for each added table
+     - a SET ADD SEQUENCE for each added sequence
+     - a series of SUBSCRIBE SET requests based on those already existing so that all possible notes will receive subscriptions to the new tables
+   - An alternative approach is to drop replication and recreate with the whole set of tables
+     But this requires little input, so seems sensible to leave to the user...
 ** Mahout Directory Structure
 
   A schema repository will consist of a directory structure where the
