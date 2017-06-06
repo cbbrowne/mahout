@@ -189,7 +189,7 @@ expect the tool to be used:
      - a CREATE SET request, for the new tables and sequences that are added
      - a SET ADD TABLE for each added table
      - a SET ADD SEQUENCE for each added sequence
-     - a series of SUBSCRIBE SET requests based on those already existing so that all possible notes will receive subscriptions to the new tables
+     - a series of SUBSCRIBE SET requests based on those already existing so that all possible nodes will receive subscriptions to the new tables
    - An alternative approach is to drop replication and recreate with the whole set of tables
      But this requires little input, so seems sensible to leave to the user...
 ** Mahout Directory Structure
@@ -203,7 +203,12 @@ expect the tool to be used:
   version would be wise.
 
   - Configuration control file: ~mahout.conf~
+
     This file contains metadata about the databases to be managed.
+
+    Alternatively, ~MAHOUTCONFIG~ may be set to indicate an
+    alternative location to find the configuration expected in
+    ~mahout.conf~.
 
   - Schema control: ~mahout.control~
     This file indicates the order in which directories/files should be visited when applying schema changes.
@@ -227,6 +232,9 @@ expect the tool to be used:
     - In some cases, external data will be needed, /e.g./ - some
       upgrades required a data file indicating configuration of DML
       changes.
+
+  Note that if ~MAHOUTCONFIG~ is set, then the file at the specified location will be used instead of the ~mahout.conf~ file in the Mahout archive.
+
 #+BEGIN_EXAMPLE
 COMPARISONDATABASE=postgresql://postgres@localhost:7099/comparisondb
 MAHOUTOMITSCHEMAS="('pg_catalog','information_schema','MaHoutSchema')"

@@ -21,8 +21,8 @@ mahout commands:
  mahout install
     Installs a mahout-managed schema in a blank database
  mahout check
-    Checks the version indicated by mahout.conf and checks the schema against
-    that version using pgcmp
+    Checks the version indicated by mahout.conf/MAHOUTCONFIG and checks the 
+    schema against that version using pgcmp
  mahout upgrade
     Performs an upgrade from the present version to the latest version
  mahout diff
@@ -77,6 +77,22 @@ function glog () {
 function summary () {
     local STEP=$1
     glog user.notice "mahout ${STEP} complete with ${NOTICES} notices, ${WARNINGS} warnings, ${PROBLEMS} errors"
+}
+
+function read_mahout_config () {
+    if [[ "x${MAHOUTCONFIG}" == "x" ]]; then
+	glog user.notice "mahout ${SUBCOMMAND} loading config from mahout.conf"
+	source mahout.conf
+    else
+	### See if MAHOUTCONFIG exists, and is a file
+	if [[ -f ${MAHOUTCONFIG} ]]; then
+	    glog user.notice "mahout ${SUBCOMMAND} loading config from [${MAHOUTCONFIG}]"
+	    source ${MAHOUTCONFIG}
+	else
+	    glog user.error "mahout ${SUBCOMMAND} cannot load config from [${MAHOUTCONFIG}]"
+	    exit 1
+	fi
+    fi
 }
 
 function mahout_init () {
@@ -523,7 +539,7 @@ function mahout_capture () {
     fi
     
     # acquire configuration from mahout.conf
-    source mahout.conf
+    read_mahout_config
     glog user.notice "Applying changes to database MAINDATABASE=[${MAINDATABASE}]"
 
     # check the version in the database
@@ -777,7 +793,7 @@ function mahout_check () {
     fi
 
     # acquire configuration from mahout.conf
-    source mahout.conf
+    read_mahout_config
     # check the version in the database
     DBVERSION=`get_mahout_version ${MAINDATABASE}`
     glog user.notice "check: found version: ${DBVERSION}"
@@ -858,7 +874,7 @@ function mahout_upgrade () {
 	exit 1
     fi
     # acquire configuration from mahout.conf
-    source mahout.conf
+    read_mahout_config
     # check the version in the database
     DBVERSION=`get_mahout_version ${MAINDATABASE}`
     glog user.notice "upgrade: found version: ${DBVERSION}"
@@ -997,7 +1013,7 @@ function mahout_install () {
 	exit 1
     fi
     # acquire configuration from mahout.conf
-    source mahout.conf
+    read_mahout_config
     
     # check that there's no Mahout schema
     local SCHEMAQ="select count(1) from pg_catalog.pg_namespace where nspname='${MAHOUTSCHEMA}';"
@@ -1120,8 +1136,8 @@ function mahout_diff () {
 	exit 1
     fi
     # acquire configuration from mahout.conf
-    source mahout.conf
-
+    read_mahout_config
+    
     # check the version in the database
     DBVERSION=`get_mahout_version ${MAINDATABASE}`
     glog user.notice "diff: found version: ${DBVERSION}"
@@ -1173,7 +1189,7 @@ function mahout_history () {
     fi
 
     # acquire configuration from mahout.conf
-    source mahout.conf
+    read_mahout_config
 
     # check the version in the database
     DBVERSION=`get_mahout_version ${MAINDATABASE}`
@@ -1226,7 +1242,7 @@ function mahout_attach () {
     fi
     
     # acquire configuration from mahout.conf
-    source mahout.conf
+    read_mahout_config
     glog user.notice "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
 
     # Verify that the version PRODVERSION matches against a valid

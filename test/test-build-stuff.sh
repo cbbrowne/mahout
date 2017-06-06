@@ -320,20 +320,20 @@ psql -d ${produri} \
      -c "drop schema \"MaHoutSchema\" cascade;"
 
 # modify control file to indicate the production DB
-echo "# use Production database now" >> ${TARGETMHDIR}/mahout.conf
-echo "MAINDATABASE=${produri}" >> ${TARGETMHDIR}/mahout.conf
+cp ${TARGETMHDIR}/mahout.conf ${TARGETMHDIR}/mahout.conf-production
+echo "MAINDATABASE=${produri}" >> ${TARGETMHDIR}/mahout.conf-production
 (cd ${TARGETMHDIR}; 
- ${MAHOUT} attach 1.4)
+ MAHOUTCONFIG=mahout.conf-production ${MAHOUT} attach 1.4)
 
 # Now, mess around with the "production" schema and see if mahout diff
 # finds this
 
 DDL="create table extra_table (id serial primary key, description text not null unique);"
 
-(source ${TARGETMHDIR}/mahout.conf;
+(source ${TARGETMHDIR}/mahout.conf-production;
  psql -d ${MAINDATABASE} -c "${DDL}"; 
  cd ${TARGETMHDIR};
- ${MAHOUT} diff;
+ MAHOUTCONFIG=mahout.conf-production ${MAHOUT} diff;
 )
 
 if [ $? -eq 0 ]; then
