@@ -223,7 +223,7 @@ echo "
 " > ${PROJECTNAME}/1.1/stuff.sql
 
 glog user.notice "mahout capture on v1.1"
-(cd ${PROJECTNAME}; ${MAHOUT} capture)
+(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.1 tar.gz)
 
 glog user.notice "do upgrade of the install instance to run v1.1"
 cp -r ${PROJECTNAME} ${TARGETDIR}
@@ -250,7 +250,7 @@ echo "
 glog user.notice "Run mahout capture to put that into the build"
 
 glog user.notice "mahout capture on v1.2"
-(cd ${PROJECTNAME}; ${MAHOUT} capture)
+(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.2 tar.gz)
 
 glog user.notice "do upgrade of the install instance to run v1.2"
 cp -r ${PROJECTNAME} ${TARGETDIR}
@@ -277,7 +277,7 @@ echo "
 " > ${PROJECTNAME}/1.3/stuff.sql
 
 glog user.notice "mahout capture on v1.3"
-(cd ${PROJECTNAME}; ${MAHOUT} capture)
+(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz)
 
 echo "
 
@@ -300,7 +300,7 @@ echo "
 " > ${PROJECTNAME}/1.4/stuff.sql
 
 glog user.notice "mahout capture on v1.4"
-(cd ${PROJECTNAME}; ${MAHOUT} capture)
+(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.4 tar.gz)
 
 glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
 cp -r ${PROJECTNAME} ${TARGETDIR}

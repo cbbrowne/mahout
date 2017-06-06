@@ -32,6 +32,8 @@ mahout commands:
  mahout changes
     List mahout scripts to be applied.
     List objects that are being changed by the upgrade
+ mahout build [BUILDNAME] [FORMAT]
+    Generates a build in specified format, one of (tar, tar.gz, tar.bz)
  mahout slonik
     Prepares a slonik script to install replication against the latest/specified version
  validate_control
@@ -135,6 +137,7 @@ function mahout_init () {
     echo ".mahout-data" >> ${GITIGNORE}
     echo ".mahout-logs" >> ${GITIGNORE}
     echo ".mahout-temp" >> ${GITIGNORE}
+    echo ".mahout-builds" >> ${GITIGNORE}
     echo "*.md5sum" >> ${GITIGNORE}
     echo "*.locks-acquired" >> ${GITIGNORE}
     echo "*.log" >> ${GITIGNORE}
@@ -175,6 +178,15 @@ function mahout_init () {
     fi
     MAHOUTTMP=${MAHOUTHOME}/.mahout-temp
     mkdir ${MAHOUTTMP}
+    
+    MAHOUTBLD=${MAHOUTHOME}/.mahout-builds
+    if [ -d ${MAHOUTBLD} ]; then
+	glog user.error "Builds directory MAHOUTBLD [${MAHOUTBLD}] already exists"
+	exit 1
+    else
+	mkdir ${MAHOUTBLD}
+	glog user.notice "Setting up directory MAHOUTBLD [${MAHOUTBLD}]"
+    fi
     
     MAHOUTCTL=${MAHOUTHOME}/mahout.control
     if [ -e ${MAHOUTCTL} ]; then
@@ -225,7 +237,6 @@ function mahout_init () {
     
     # And capture the pgcmp output as .mahout-data/Base.pgcmp
     (cd ${MAHOUTHOME}; MAINDATABASE=${MDB} MAHOUTOMITSCHEMAS="${MAHOUTOMITSCHEMAS}" dump_current_schema Base ${MAHOUTHOME}/.mahout-data/Base.pgcmp)
-
     summary init
 }
 
@@ -1322,25 +1333,42 @@ function mahout_changes () {
 }
 
 function mahout_build () {
-    local BTYPE=$1
-    local BNAME=$2
+    local BLABEL=$1
+    local BTYPE=$2
+    local BHOME=`mktemp -d /tmp/mahout-build-path.XXXXXXXXXXXXXXX`
+    mkdir ${BHOME}/${BLABEL}
+    glog user.notice "mahout build generated build directory ${BHOME}/${BLABEL}"
+    tar cf - . | (cd ${BHOME}/${BLABEL}; tar xf -)
+    glog user.notice "mahout build copied build material to ${BHOME}/${BLABEL}"
+
+    glog user.notice "mahout build: trimming unneeded material"
+    for exclusion in .mahout-logs .mahout-temp .mahout-builds; do
+	EXCLUSIONDIR=${BHOME}/${BLABEL}/${exclusion}
+	if [[ -d ${EXCLUSIONDIR}  ]]; then
+	    rm -rf ${EXCLUSIONDIR}
+	fi
+    done
+
+    BUILDFILE=${PWD}/.mahout-builds/${BLABEL}.${BTYPE}
+    
     case $BTYPE in
 	tar)
-	    tar cfv $BNAME stuff
+	    (cd ${BHOME}; tar cf ${BUILDFILE} ${BLABEL})
 	    ;;
 	tar.gz)
-	    tar cfvz $BNAME stuff
+	    (cd ${BHOME}; tar cfz ${BUILDFILE} ${BLABEL})
 	    ;;
 	tar.bz)
-	    tar cfvj $BNAME stuff
-	    ;;
-	zip)
-	    zip $BNAME stuff
+	    (cd ${BHOME}; tar cfj ${BUILDFILE} ${BLABEL})
 	    ;;
 	*)
-	    glog user.error "Invalid build type: [${BTYPE}] - must be one of (tar, tar.gz, tar.bz, zip)"
+	    glog user.error "Invalid build type: [${BTYPE}] - must be one of (tar, tar.gz, tar.bz)"
 	    ;;
     esac
+    if [[ -d ${BHOME} ]]; then
+	rm -rf ${BHOME}
+    fi
+    glog user.notice "Build generated as ${BUILDFILE}"
     summary build
 }
 
