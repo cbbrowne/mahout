@@ -37,8 +37,14 @@ In contrast with them, Mahout
   - Audits changes /extensively/; Mahout uses ~pgcmp~ to ensure that
     if you are attempting to deploy a change into production, and
     someone has been messing around with database schemas, you will be
-    made aware of this /before/ you get half-way through deploying a
-    set of schema changes.
+    made aware of this /before/ you get part of the way through
+    deploying a set of schema changes and discover them breaking.
+  - Eschews the (apparently from Ruby on Rails) dogma of requiring
+    forwards-and-backwards migrations.  The assumption made by Mahout
+    is that your system administrators will /arrange for backup/ to
+    enable rolling back should severe problems be experienced.
+    Commonly, these days, filesystem snapshots tend to be a good way
+    of keeping backups in case of /database disaster/.
 
 ** Derivation of the name Mahout
 
@@ -47,10 +53,10 @@ project uses an elephant as its "visual mascot," it seems appropriate
 to use "mahout" to describe a tool that helps keep database schemas
 under control.
 
-Also considered was Pahan, which is the equivalent word Tamil.  There
-appears to be some record of "mahout" being used as a perjorative
-involving cab drivers on Long Island near New York City, but that's
-sufficiently separate as to be not relevant.
+Also considered was Pahan, which is the equivalent word in Tamil.
+There appears to be some record of "mahout" being used as a
+perjorative involving cab drivers on Long Island near New York City,
+but that's sufficiently separate as to be not relevant.
 
 ** Use Cases
 
@@ -253,16 +259,18 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
     - Subsequent versions will indicate their respective predecessor
   - For each file to be loaded there must be a line in ~mahout.control~ indicating processing steps, which include:
     - psql :: Indicating that the file should be processed using ~psql~ against MAINDATABASE
-    - shell :: Indicating that the file should be run as a shell script, with the values in ~mahout.conf~ loaded into the environment
-  - Additional Attributes
-    - To support ~slonik~, there may be supplementary attributes to indicate how a step should be applied from a replication perspective.  Some of this is wishful thinking at the moment, but it's desirable...
-      - EXECUTION :: How is the schema change to be applied?
-        - DDL :: DDL should be run via ~EXECUTE SCRIPT~ against the origin node so it then propagates to all other nodes automatically
-        - Master :: Some DML should only be run against the origin node; the consequences will propagate to other nodes automatically
-        - Everywhere :: Some DML might be appropriate to apply against all nodes in the cluster.  This should be an unusual scenario.
-      - SUBSCRIPTION :: Indicates a set of tables to be added to replication via SET ADD TABLE
+    - shell :: Indicating that the file should be run as a shell
+               script, with the values in ~mahout.conf~ loaded into
+               the environment.  It is strongly urged that ~shell~
+               only be used to handle DML changes, that is, to change
+               the data /inside/ tables, as opposed to doing DML
+               (table structure alterations).  ~shell~ commands are
+               not amenable to capturing ~.locks-acquired~ data, as
+               the script controls transaction management rather than
+               Mahout doing so.
 
-  Complex example of ~mahout.control~:
+  Complex example of ~mahout.control~ (that might resemble deployment
+  of schema for some particular application).
 #+BEGIN_EXAMPLE
   # Note that Base is actually version 1.5; that was where we started...
   version Base
@@ -541,8 +549,9 @@ These things need to be covered somewhere.
 *** Permissions Provisioning
 
 There is a fairly sophisticated permissions model constructed out of:
-  - Matrix of detailed permissions for Registry-services-managed roles
-  - Schema-based (e.g. - granting same permissions for a whole "directory" of objects) for other roles
+ - Matrix of detailed permissions for Registry-services-managed roles
+ - Schema-based (e.g. - granting same permissions for a whole
+   "directory" of objects) for other roles
 
 Perhaps this no longer needs to be covered by specific "permissions
 provisioning" tools; having regression tests that verify that
@@ -552,7 +561,7 @@ permissions have been provisioned will be sufficient.
 
 There are a set of tests in the ~universal-schema~ build today that
 verify several things.  The Mahout ~psqltest~ facility should nicely
-cover these requirements.
+cover these sorts of requirements.
 
   - Common rules
     - Verify that all functions, tables, columns are commented
