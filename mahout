@@ -1373,7 +1373,144 @@ function mahout_build () {
 }
 
 function mahout_slonik () {
-    echo "slonik Not implemented yet"
+    # starts similarly to mahout_upgrade, checking hygiene
+    
+    # check that we're in a Mahout directory
+    local INMAHOUT
+    local PGCMPOUTPUT
+    
+    INMAHOUT=`in_mahout_home`
+    if [[ ${INMAHOUT} != 0 ]]; then
+	glog user.error "slonik: not in mahout directory - ${INMAHOUT}"
+	exit 1
+    fi
+    # acquire configuration from mahout.conf
+    read_mahout_config
+    # check the version in the database
+    DBVERSION=`get_mahout_version ${MAINDATABASE}`
+    glog user.notice "slonik: found version: ${DBVERSION}"
+
+    # Dump current schema using pgcmp-dump
+    local CURRENTCMP=${PWD}/.mahout-temp/CurrentSchema.pgcmp
+    dump_current_schema CurrentSchema ${CURRENTCMP}
+
+    glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
+    PGCMPWORK=`mktemp -d /tmp/mahout-slonik-pgcmp-work.XXXXXXXXXXX`
+    PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    rc=$?
+    case ${rc} in
+	0)
+	    glog user.notice "pgcmp found exact match"
+	    ;;
+	2)
+	    glog user.error "pgcmp failed to run properly - see ${PGCMPWORK}/perform-comparison.log"
+	    exit 1
+	    ;;
+	3)
+	    glog user.error "pgcmp found differences inadequately explained"
+	    exit 2
+	    ;;
+    esac
+    # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
+    local depfodder=`mktemp /tmp/mahout-slonik-dependency-fodder.XXXXXXXXXXXX`
+    local dependencies=`mktemp /tmp/mahout-slonik-dependencies.XXXXXXXXXXXX`
+    local versionorder=`mktemp /tmp/mahout-slonik-version-order.XXXXXXXXXXXX`
+    local versioncontent=`mktemp -d /tmp/mahout-slonik-version-content.XXXXXXXXXXXX`
+    local slonikscript="${PWD}/.mahout-builds/slonik-from-${DBVERSION}.slonik"
+
+    # Find the shape of the cluster...
+    # SLONYCLUSTERNAME
+    # SLONYNODES
+    # SLONYSUBSCRIPTIONS
+
+    # Need to add SET DROP TABLE requests to slonik scripts before tables are dropped
+
+    calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
+    glog user.notice "calced dependencies"
+    split_versions ${versioncontent}
+    versionswanted=false
+    for propversion in `cat ${versionorder}`; do
+	if [[ $propversion == ${DBVERSION} ]]; then
+	    # We have reached the point at which versions should get captured
+	    versionswanted=true
+	    glog user.notice "Capture examining versions to apply - already on ${propversion}"
+	else
+	    if [[ $versionswanted == "true" ]]; then
+		# need to apply scripts to the database
+		glog user.notice "Slonik needs to apply version ${propversion}"
+		version_load_start ${propversion}
+		
+		glog user.notice "From script ${versioncontent}/${propversion}"
+		while read line
+		do
+		    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
+			echo "no action apropos for version line"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
+  		        echo "no action apropos for requires line"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
+			local sqlscript=`echo ${line} | cut -d " " -f 2`
+			glog user.notice "apply SQL Script ${sqlscript}"
+			md5sum=`md5sum < ${sqlscript}`
+			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
+			action_start $propversion slonik "psql script" ${sqlscript} "${md5sum}"
+			psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			retcode=$?
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
+			    action_end "slonik" "psql script" "${sqlscript}" "${md5sum}" f
+			    exit 1
+			else
+			    action_end ${propversion} "slonik" "psql script" "${sqlscript}" "${md5sum}" t
+			fi
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
+			local sqlscript=`echo ${line} | cut -d " " -f 2`
+			echo "apply SQL Superuser Script ${sqlscript}"
+			md5sum=`md5sum < ${sqlscript}`
+			echo ${md5sum} > ${sqlscript}.md5sum
+			action_start ${propversion} "slonik" "psql superuser script" "${sqlscript}" "${md5sum}"
+			psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			retcode=$?
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
+			    action_end slonik "psql script" "${sqlscript}" "${md5sum}" f
+			    exit 1
+			else
+			    action_end slonik "psql script" "${sqlscript}" "${md5sum}" t
+			fi
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
+			local shellscript=`echo ${line} | cut -d " " -f 2`
+			local shellarg=`echo ${line} | cut -d " " -f 3`
+			cat ${shellscript} | md5sum > ${shellscript}.md5sum
+
+			action_start ${propversion} "slonik" "shell script" "${shellscript}" "${md5sum}"			
+			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ${shellscript}.${propversion}.log 2>&1
+			action_end ${propversion} "slonik" "shell script" "${shellscript}" "${md5sum}" t
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
+			glog user.debug "no action apropos for psqltest on slonik"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
+			glog user.debug "no action apropos for common tests"
+		    fi
+		    glog user.debug "line of ${propversion}: ${line}"
+		done < ${versioncontent}/${propversion}
+
+		# Apply new version to it...
+		version_load_end ${propversion}
+		
+   	    else
+		glog user.debug "Slonik not applying earlier version ${propversion}"
+	    fi
+	fi
+    done		
+    rm -f ${depfodder} ${dependencies} ${versionorder}
+    rm -rf ${versioncontent} ${PGCMPWORK}
+    
+    echo "slonik Not fully implemented yet"
     exit 1    
     summary slonik
 }
