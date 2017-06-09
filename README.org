@@ -39,6 +39,12 @@ In contrast with them, Mahout
     someone has been messing around with database schemas, you will be
     made aware of this /before/ you get part of the way through
     deploying a set of schema changes and discover them breaking.
+  - Starts by /being paranoid/.  It assumes that it is necessary to
+    examine production schemas to ensure they are unmodified.  If it
+    discovers modifications, they are treated as /defects/ which must
+    be rectified before proceeding.  This prevents falling into the
+    problem that a hacked-up production schema is incompatible with
+    the upgrade scripts.
   - Eschews the (apparently from Ruby on Rails) dogma of requiring
     forwards-and-backwards migrations.  The assumption made by Mahout
     is that your system administrators will /arrange for backup/ to
