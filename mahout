@@ -112,6 +112,7 @@ function mahout_init () {
     MCL=${COMPARISONDATABASE:-${PGDATABASE:-"COMPARISONDATABASEUNSET"}}
     PGCH=${PGCMPHOME:-"/home/cbbrowne/PostgreSQL/pgcmp"}
     MHSCH=${MAHOUTSCHEMA:-"Mahout"}
+    MPGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-9.1/bin"}
     glog user.notice "Mahout schema: [${MHSCH}]"
 
     if [ -d $MAHOUTHOME ]; then
@@ -155,6 +156,7 @@ function mahout_init () {
     echo "PGCMPHOME=${PGCH}" >> ${MO}
     echo "# MAHOUTSCHEMA: which schema to use for Mahout database objects" >> ${MO}
     echo "MAHOUTSCHEMA=${MHSCH}" >> ${MO}				      
+    echo "PGBINDIR=${PGBINDIR:-\"${MPGBINDIR}\"}" >> ${MO}
 
     for pgm in pgcmp pgcmp-dump; do
 	if [ -x ${PGCH}/${pgm} ]; then
