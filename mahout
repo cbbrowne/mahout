@@ -531,7 +531,7 @@ function dump_current_schema () {
     glog user.notice "Dump [${LABEL}] schema data via pgcmp-dump into ${TARGET}"
     
     # Dump current schema using pgcmp-dump
-    PGCLABEL=${LABEL} PGURI=${MAINDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${TARGET} ${PGCMPHOME}/pgcmp-dump > /dev/null
+    PGBINDIR=${PGBINDIR} PGCLABEL=${LABEL} PGURI=${MAINDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${TARGET} ${PGCMPHOME}/pgcmp-dump > /dev/null
     rc=$?
     if [ $rc -ne 0 ]; then
 	glog user.error "Failure to use pgcmp to dump schema metadata for label [${LABEL}] - rc=[${rc}]"
@@ -569,7 +569,7 @@ function mahout_capture () {
     local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
     if [ -e ${VERSIONDUMP} ]; then
 	glog user.notice "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
-	PGURI=${COMPAREURI} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+	PGBINDIR=${PGBINDIR} PGURI=${COMPAREURI} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
 	rc=$?
 	case $rc in
 	    2)
@@ -856,7 +856,7 @@ function mahout_check () {
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
 
     PGCMPWORK=`mktemp -d /tmp/mahout-check-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1=TempCurrent PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    PGBINDIR=${PGBINDIR} PGCLABEL1=TempCurrent PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
 	0)
@@ -898,7 +898,7 @@ function mahout_upgrade () {
 
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
     PGCMPWORK=`mktemp -d /tmp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    PGBINDIR=${PGBINDIR} PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
 	0)
@@ -1161,7 +1161,7 @@ function mahout_diff () {
 
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
     PGCMPWORK=`mktemp -d /tmp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    PGBINDIR=${PGBINDIR} PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
 	0)
@@ -1289,7 +1289,7 @@ function mahout_attach () {
 
     # Now, run pgcmp against the two schemas:
     PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
 	0)
