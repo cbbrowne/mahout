@@ -569,7 +569,7 @@ function mahout_capture () {
     local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
     if [ -e ${VERSIONDUMP} ]; then
 	glog user.notice "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
-	PGBINDIR=${PGBINDIR} PGURI=${COMPAREURI} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+	PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
 	rc=$?
 	case $rc in
 	    2)
@@ -633,7 +633,7 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-			    action_end "capture" "psql script" "${sqlscript}" "${md5sum}" f
+			    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
 			    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" t
