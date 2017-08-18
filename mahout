@@ -114,6 +114,7 @@ function mahout_init () {
     MHSCH=${MAHOUTSCHEMA:-"Mahout"}
     MPGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-9.1/bin"}
     glog user.notice "Mahout schema: [${MHSCH}]"
+    glog user.notice "Superuser access: ${SUPERUSERACCESS}"
 
     if [ -d $MAHOUTHOME ]; then
 	glog user.error "Directory [${MAHOUTHOME}] already exists - aborting"
@@ -197,7 +198,7 @@ function mahout_init () {
 	echo "# Initialized mahout.control" > ${MAHOUTCTL}
 	echo "# add sections after this to indicate versions" >> ${MAHOUTCTL}
 	echo "version Base"  >> ${MAHOUTCTL}
-	echo "psql Base/base-schema.sql"  >> ${MAHOUTCTL}
+	echo "superuser Base/base-schema.sql"  >> ${MAHOUTCTL}
     fi
     case $PROBLEMS in
 	0)
@@ -625,7 +626,21 @@ function mahout_capture () {
 			action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
 			echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
 			cat ${sqlscript} >> ${TEMPSQLFILE}
-			echo "create temp table t_ending_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';
+			rc=$?
+			case $rc in
+			    0)
+				glog user.debug "constructed ${sqlscript} into ${TEMPSQLFILE} ok"
+			        ;;
+			    1)
+				glog user.error "SQL script ${sqlscript} not found"
+				exit 2
+				;;
+			    *)
+				glog user.error "Error adding in SQL script ${sqlscript} - rc=[${rc}]"
+				exit 3
+				;;
+			esac				
+				echo "create temp table t_ending_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';
 create temp table t_locks_acquired as select nspname, relname, mode from t_ending_locks e where not exists (select 1 from t_starting_locks s where s.nspname = e.nspname and s.relname = e.relname and s.mode = e.mode);
 " >> ${TEMPSQLFILE}
 			echo "\COPY (select nspname, relname, mode from t_locks_acquired) to '${sqlscript}.${propversion}.locks-acquired';" >> ${TEMPSQLFILE}
@@ -655,10 +670,10 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "superuser script ${sqlscript} failed against database [${MAINDATABASE}]"
-			    action_end capture "psql script" "${sqlscript}" "${md5sum}" f
+			    action_end ${propversion} capture "psql superuser script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
-			    action_end capture "psql script" "${sqlscript}" "${md5sum}" t
+			    action_end ${propversion} capture "psql superuser script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
@@ -953,7 +968,7 @@ function mahout_upgrade () {
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-			    action_end "upgrade" "psql script" "${sqlscript}" "${md5sum}" f
+			    action_end ${propversion} "upgrade" "psql script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
 			    action_end ${propversion} "upgrade" "psql script" "${sqlscript}" "${md5sum}" t
@@ -968,11 +983,11 @@ function mahout_upgrade () {
 			psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
-			    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
-			    action_end upgrade "psql script" "${sqlscript}" "${md5sum}" f
+			    glog user.error "superuser script ${sqlscript} failed against database [${SUPERUSERACCESS}]"
+			    action_end ${propversion} upgrade "psql script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
-			    action_end upgrade "psql script" "${sqlscript}" "${md5sum}" t
+			    action_end ${propversion} upgrade "psql script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
@@ -1030,14 +1045,18 @@ function mahout_install () {
     
     # check that there's no Mahout schema
     local SCHEMAQ="select count(1) from pg_catalog.pg_namespace where nspname='${MAHOUTSCHEMA}';"
-    local FINDSCHEMA=`psql -d ${MAINDATABASE} -qAt -c "${SCHEMAQ}"`
-    if [ ${FINDSCHEMA} == "1" ]; then
-	glog user.error "Database already has Mahout schema ${MAHOUTSCHEMA}"
-	exit 1
-    fi
-
-    local SETUPQ=`mktemp /tmp/mahout-install-setup.XXXXXXXXXXXXXX`
-    mahout_initialize_schema > ${SETUPQ}
+    local MCOUNT=`psql -d ${MAINDATABASE} -qAt -c "${SCHEMAQ}"`
+    case $MCOUNT in
+	1)
+	    glog user.error "Database already has Mahout schema ${MAHOUTSCHEMA}"
+	    exit 1
+	    ;;
+	0)
+	    local SETUPQ=`mktemp /tmp/mahout-install-setup.XXXXXXXXXXXXXX`
+	    mahout_initialize_schema > ${SETUPQ}
+	    ;;
+    esac
+    
     echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'install mahout', 'MahoutInstall', 'install', 'mahout', 'initialized', 't');
   commit;" >> ${SETUPQ}
 
@@ -1083,7 +1102,7 @@ function mahout_install () {
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
 		    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-		    action_end "capture" "psql script" "${sqlscript}" "${md5sum}" f
+		    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" f
 		    exit 1
 		else
 		    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" t
@@ -1095,14 +1114,15 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		echo ${md5sum} > ${sqlscript}.md5sum
 		action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
+		glog user.notice "Superuser - ${SUPERUSERACCESS}"
 		psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
-		    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
-		    action_end capture "psql script" "${sqlscript}" "${md5sum}" f
+		    glog user.error "superuser script ${sqlscript} failed against database [${SUPERUSERACCESS}]"
+		    action_end ${propversion} capture "psql script" "${sqlscript}" "${md5sum}" f
 		    exit 1
 		else
-		    action_end capture "psql script" "${sqlscript}" "${md5sum}" t
+		    action_end ${propversion} capture "psql script" "${sqlscript}" "${md5sum}" t
 		fi
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
@@ -1129,7 +1149,7 @@ function mahout_install () {
 
 	version_load_end ${propversion}
     done
-	
+    
     rm -f ${SETUPQ} ${depfodder} ${dependencies} ${versionorder}
     rm -rf ${versioncontent}
     summary install
