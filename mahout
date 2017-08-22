@@ -652,6 +652,7 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			    exit 1
 			else
 			    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" t
+			    rm ${TEMPSQLFILE}
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
@@ -674,6 +675,7 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			    exit 1
 			else
 			    action_end ${propversion} capture "psql superuser script" "${sqlscript}" "${md5sum}" t
+			    rm ${TEMPSQLFILE}
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
