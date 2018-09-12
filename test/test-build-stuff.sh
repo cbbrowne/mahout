@@ -57,7 +57,7 @@ function glog () {
 	    ;;
     esac
     if [ -f ${MAHOUTLOG} ]; then
-	when=`date --rfc-3339=seconds`
+	when=$(date --rfc-3339=seconds)
 	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}
     fi
     case ${level} in
@@ -314,6 +314,8 @@ cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
 (cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
 
+glog user.notice "Completed upgrade to v1.4"
+
 ### Create a database and use "mahout attach" to attach a database to
 ### it
 
@@ -328,24 +330,22 @@ psql -d ${produri} \
 
 # modify control file to indicate the production DB
 cp ${TARGETMHDIR}/mahout.conf ${TARGETMHDIR}/mahout.conf-production
-echo "MAINDATABASE=${produri}" >> ${TARGETMHDIR}/mahout.conf-production
+echo "
+MAINDATABASE=${DBCLUSTER}/${proddb}
+SUPERUSERACCESS=${SUPERCLUSTER}/${proddb}
+
+" >> ${TARGETMHDIR}/mahout.conf-production
 (cd ${TARGETMHDIR}; 
  MAHOUTCONFIG=mahout.conf-production ${MAHOUT} attach 1.4)
 
-# Now, mess around with the "production" schema and see if mahout diff
-# finds this
+glog user.notice "Now, muss with the production schema, and see that mahout diff notices this"
 
-DDL="create table extra_table (id serial primary key, description text not null unique);"
-
-(source ${TARGETMHDIR}/mahout.conf-production;
- psql -d ${MAINDATABASE} -c "${DDL}"; 
- cd ${TARGETMHDIR};
- MAHOUTCONFIG=mahout.conf-production ${MAHOUT} diff;
-)
-
+psql -d ${DBCLUSTER}/${proddb} -c "create table extra_table (id serial primary key, description text not null unique);" 
+(cd ${TARGETMHDIR};
+ MAHOUTCONFIG=mahout.conf-production ${MAHOUT} diff)
 if [ $? -eq 0 ]; then
     glog user.notice "Problem: mahout diff did not notice induced changes"
 else
     glog user.error "Found differences, as expected"
 fi
-
+popd   # matching pushd
