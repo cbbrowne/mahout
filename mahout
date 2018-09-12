@@ -1116,7 +1116,7 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		echo ${md5sum} > ${sqlscript}.md5sum
 		action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
-		glog user.notice "Superuser - ${SUPERUSERACCESS}"
+		glog user.notice "Superuser - ${SUPERUSERACCESS} loading script ${sqlscript}, logging to ${sqlscript}.${propversion}.log"
 		psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
@@ -1131,6 +1131,7 @@ function mahout_install () {
 		local shellscript=`echo ${line} | cut -d " " -f 2`
 		local shellarg=`echo ${line} | cut -d " " -f 3`
 		cat ${shellscript} | md5sum > ${shellscript}.md5sum
+		glog user.notice "script - ${MAINDATABASE} loading shell script ${shellscript}, logging to ${shellscript}.${propversion}.log"
 		action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"
 		MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ./${shellscript}.${propversion}.log 2>&1
 		action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
