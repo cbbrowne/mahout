@@ -3,8 +3,11 @@
 set -e -u
 
 # Let's set up a database and put some schema into it as a Base Schema
+REGUSER=${REGUSER:-"cbbrowne"}
+SUPERUSER=${SUPERUSER:-"postgres"}
 PGCMPHOME=${PGCMPHOME:-${HOME}/PostgreSQL/pgcmp}
-DBCLUSTER=${DBCLUSTER:-"postgresql://postgres@localhost:7099"}
+DBCLUSTER=${DBCLUSTER:-"postgresql://${REGUSER}@localhost:7095"}
+SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@localhost:7095"}
 MAHOUTHOME=${MAHOUTHOME:-${HOME}/PostgreSQL/mahout}
 TARGETDIR=${TARGETDIR:-"install-target"}
 MAHOUTLOGDIR=${MAHOUTLOG:-"/tmp/mahout-tests"}
@@ -80,12 +83,12 @@ for i in ${devdb} ${comparisondb} ${installdb} ${proddb}; do
          -c "create database ${i};"
 done
 
-glog user.notice "Set up a simple schema"
+glog user.notice "Set up a simple schema in database $devdb"
 
-psql -d ${devdb} -c "
-  create table t1 (id serial primary key, name text not null unique, created_on timestamptz default now());
-  create schema subschema;
-  create table subschema.t2 (id serial primary key, name text not null unique, created_on timestamptz default now());
+psql -d ${devuri} -c "
+  create table if not exists t1 (id serial primary key, name text not null unique, created_on timestamptz default now());
+  create schema if not exists subschema;
+  create table if not exists subschema.t2 (id serial primary key, name text not null unique, created_on timestamptz default now());
 "
 
 glog user.notice "Purge away ./${PROJECTNAME}"
@@ -126,7 +129,7 @@ fi
 
 glog user.notice "Do mahout init to capture that base schema"
 
-MAHOUTSCHEMA=MaHoutSchema PGCMPHOME=${PGCMPHOME} MAINDATABASE=${devuri} SUPERUSERACCESS=${clusterdb} COMPARISONDATABASE=${compuri} ${MAHOUT} init ${PROJECTNAME}
+MAHOUTSCHEMA=MaHoutSchema PGCMPHOME=${PGCMPHOME} MAINDATABASE=${devuri} SUPERUSERACCESS=${SUPERCLUSTER}/${devdb} COMPARISONDATABASE=${compuri} ${MAHOUT} init ${PROJECTNAME}
 
 glog user.notice "Do mahout capture without introducing any changes; expect no change"
 # Run mahout capture, without any change
@@ -196,9 +199,13 @@ cp -r ${PROJECTNAME} ${TARGETDIR}
 function fix_install_uri () {
 # Drop alternate configuration into installation Mahout config
     glog user.notice "fix up install instance to use ${installuri} rather than the URI provided in the build"
-    egrep -v MAINDATABASE ${TARGETMHDIR}/mahout.conf > ${TARGETMHDIR}/mahout.conf.keep
+    egrep -v MAINDATABASE ${TARGETMHDIR}/mahout.conf | \
+    egrep -v SUPERUSERACCESS ${TARGETMHDIR}/mahout.conf \
+	> ${TARGETMHDIR}/mahout.conf.keep
     echo "
 MAINDATABASE=${installuri}
+SUPERUSERACCESS=${SUPERCLUSTER}/${installdb}
+
 " >> ${TARGETMHDIR}/mahout.conf.keep
     cp ${TARGETMHDIR}/mahout.conf.keep ${TARGETMHDIR}/mahout.conf
 }
