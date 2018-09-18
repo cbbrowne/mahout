@@ -1094,20 +1094,52 @@ function mahout_install () {
 	    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
   		echo "no action apropos for requires line"
 	    fi
-	    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
+	    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
 		local sqlscript=`echo ${line} | cut -d " " -f 2`
-		glog user.notice "apply SQL Script ${sqlscript}"
+		glog user.notice "apply DDL Script ${sqlscript}"
 		md5sum=`md5sum < ${sqlscript}`
 		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-		action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
+		action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
 		psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
-		    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-		    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" f
+		    glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
+		    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" f
 		    exit 1
 		else
-		    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" t
+		    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" t
+		fi
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^ddl-autocommit ") -eq 1 ]]; then
+		local sqlscript=`echo ${line} | cut -d " " -f 2`
+		glog user.notice "apply DDL-AUTOCOMMIT Script ${sqlscript}"
+		md5sum=`md5sum < ${sqlscript}`
+		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
+		action_start $propversion capture "DDL-AUTOCOMMIT script" ${sqlscript} "${md5sum}"
+		psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} > ${sqlscript}.${propversion}.log 2>&1
+		retcode=$?
+		if [ $retcode -ne 0 ]; then
+		    glog user.error "DDL-AUTOCOMMIT script ${sqlscript} failed against database [${MDB}]"
+		    action_end ${propversion} "capture" "DDL-AUTOCOMMIT script" "${sqlscript}" "${md5sum}" f
+		    exit 1
+		else
+		    action_end ${propversion} "capture" "DDL-AUTOCOMMIT script" "${sqlscript}" "${md5sum}" t
+		fi
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
+		local sqlscript=`echo ${line} | cut -d " " -f 2`
+		glog user.notice "apply DML Script ${sqlscript}"
+		md5sum=`md5sum < ${sqlscript}`
+		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
+		action_start $propversion capture "DML script" ${sqlscript} "${md5sum}"
+		psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		retcode=$?
+		if [ $retcode -ne 0 ]; then
+		    glog user.error "DML script ${sqlscript} failed against database [${MDB}]"
+		    action_end ${propversion} "capture" "DML script" "${sqlscript}" "${md5sum}" f
+		    exit 1
+		else
+		    action_end ${propversion} "capture" "DML script" "${sqlscript}" "${md5sum}" t
 		fi
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then

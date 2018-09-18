@@ -184,9 +184,9 @@ expect the tool to be used:
    - It is essentially a way of avoiding the need to run ~tar cfvz schema-version.tar.gz~
  - ~mahout slonik~ :: This generates ~slonik~ scripts for use with
                      Slony to perform the specified upgrade.
-   - It only works if the version upgrade(s) /only/ consist of ~psql~
-     and ~psqltest~ requests; it will /fail/ if there is a ~shell~
-     step.
+   - It only works if the version upgrade(s) /only/ consist of ~ddl~,
+     ~dml~, ~ddl-autocommit~, and ~psqltest~ requests; it will /fail/
+     if there is a ~shell~ step.
    - It generates a slonik script with the following:
      - a pre-amble reference to allow set IDs and connection paths to be defined by an administrator
      - an EXECUTE SCRIPT request for each ~psql~ script, to apply DDL to the cluster
@@ -258,7 +258,21 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
     - The first version is called "Base", and has no predecessor
     - Subsequent versions will indicate their respective predecessor
   - For each file to be loaded there must be a line in ~mahout.control~ indicating processing steps, which include:
-    - psql :: Indicating that the file should be processed using ~psql~ against MAINDATABASE
+    - ddl :: Indicating that the file contains SQL DDL and should be
+             processed using ~psql~ against MAINDATABASE.  It is an
+             error to perform DML in a ~ddl~ script, and /mahout/ may
+             check for this and report an error if data other than
+             schema is modified.
+    - ddl-autocommit :: Indicating that the file contains SQL DDL and
+                        should be processed using ~psql~ against
+                        MAINDATABASE.  Rather than the whole SQL
+                        script being run as a single transaction, this
+                        runs in autocommit mode, as is needed to
+                        create indexes concurrently.
+    - dml :: Indicating that the file contains SQL DML and should be
+             processed using ~psql~ against MAINDATABASE.  It is an
+             error to perform DDL in a ~dml~ script, and /mahout/ may
+             check for this and report an error if schema is modified.
     - shell :: Indicating that the file should be run as a shell
                script, with the values in ~mahout.conf~ loaded into
                the environment.  It is strongly urged that ~shell~
@@ -274,7 +288,7 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
 #+BEGIN_EXAMPLE
   # Note that Base is actually version 1.5; that was where we started...
   version Base
-    psql Base/base-schema.sql
+    ddl Base/base-schema.sql
 
   common tests
     psqltest from 2.2 to 2.2.26 test/parent-test-1.sql
@@ -291,62 +305,62 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
   version 2.0
     requires Base
     superuser 2.0/drop_roles.sql
-    psql 2.0/public.sql
-    psql 2.0/app_private.sql
-    psql 2.0/app.sql
-    psql 2.0/devtools.sql
+    ddl 2.0/public.sql
+    ddl 2.0/app_private.sql
+    ddl 2.0/app.sql
+    ddl 2.0/devtools.sql
     psqltest 2.0/new-feature-in-2.0.sql
 
   version 2.1
     requires 2.0
-    psql 2.1/public.sql
-    psql 2.1/app.sql
-    psql 2.1/drop_deprecateds.sql
-    psql 2.1/devtools.sql
+    ddl 2.1/public.sql
+    ddl 2.1/app.sql
+    ddl 2.1/drop_deprecateds.sql
+    ddl 2.1/devtools.sql
 
   version 2.2
     requires 2.1
-    psql 2.2/public.sql
-    psql 2.2/app_private.sql
-    psql 2.2/adjustment_criteria.sql
-    psql 2.2/migrate_ids.sql CLIENT_ID_FILE=${CONFIG_22}
+    ddl 2.2/public.sql
+    ddl 2.2/app_private.sql
+    ddl 2.2/adjustment_criteria.sql
+    ddl 2.2/migrate_ids.sql CLIENT_ID_FILE=${CONFIG_22}
 
   version 2.2.26
     requires 2.2
-    psql 2.2.26/public.sql
-    psql 2.2.26/migrate-ids.sql CLIENT_ID_FILE=${CONFIG_2226}
+    ddl 2.2.26/public.sql
+    ddl 2.2.26/migrate-ids.sql CLIENT_ID_FILE=${CONFIG_2226}
 
   version 2.3x
     requires 2.2.26
-    psql 2.3x/public.sql
-    psql 2.3x/app.sql
-    psql 2.3x/app_private.sql
+    ddl 2.3x/public.sql
+    ddl 2.3x/app.sql
+    ddl 2.3x/app_private.sql
 
   version 2.3y
     requires 2.3x
-    psql 2.3y/public.sql
-    psql 2.3y/app_private.sql
-    psql 2.3y/app.sql
-    psql 2.3y/devtools.sql
+    ddl 2.3y/public.sql
+    ddl 2.3y/app_private.sql
+    ddl 2.3y/app.sql
+    ddl 2.3y/devtools.sql
     shell 2.3y/migration-currency.sh PF_CURRENCY_FILE=${CONFIG_23y}
     shell 2.3y/migrate-pf-currency.sql
 
   version 2.3z
     requires 2.3y
-    psql 2.3z/public.sql
-    psql 2.3z/app_private.sql
-    psql 2.3z/app.sql
-    psql 2.3z/migration-script.sql
+    ddl 2.3z/public.sql
+    ddl 2.3z/app_private.sql
+    ddl 2.3z/app.sql
+    ddl 2.3z/migration-script.sql
 
   version 2.4
     requires 2.3z
-    psql 2.4/app.sql
+    ddl 2.4/app.sql
 
   version 2.5
     requires 2.4
-    psql 2.5/public.sql
-    psql 2.5/app_private.sql
-    psql 2.5/app.sql
+    ddl 2.5/public.sql
+    ddl 2.5/app_private.sql
+    ddl 2.5/app.sql
 
   version 2.6
     requires 2.5
@@ -354,14 +368,14 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
 
   version 2.7
     requires 2.6
-    psql 2.7/globals.sql
-    psql 2.7/public.sql
-    psql 2.7/app_private.sql
-    psql 2.7/app.sql
+    ddl 2.7/globals.sql
+    ddl 2.7/public.sql
+    ddl 2.7/app_private.sql
+    ddl 2.7/app.sql
 
   version 2.8
     requires 2.7
-    psql 2.8/public.sql
+    ddl 2.8/public.sql
 #+END_EXAMPLE
 
 ** Logging to be done

@@ -220,7 +220,7 @@ echo "
 
 version 1.1
 requires Base
-psql 1.1/stuff.sql
+ddl 1.1/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
@@ -242,7 +242,7 @@ echo "
 
 version 1.2
 requires 1.1
-psql 1.2/stuff.sql
+ddl 1.2/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
 mkdir ${PROJECTNAME}/1.2
@@ -269,7 +269,7 @@ echo "
 
 version 1.3
 requires 1.2
-psql 1.3/stuff.sql
+ddl 1.3/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
@@ -290,7 +290,7 @@ echo "
 
 version 1.4
 requires 1.3
-psql 1.4/stuff.sql
+ddl 1.4/stuff.sql
 psqltest common-tests/failing-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
