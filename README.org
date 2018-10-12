@@ -193,7 +193,8 @@ expect the tool to be used:
                      all of the data.
    - It is essentially a way of avoiding the need to run ~tar cfvz schema-version.tar.gz~
  - ~mahout slonik~ :: This generates ~slonik~ scripts for use with
-                     Slony to perform the specified upgrade.
+      Slony to perform the specified upgrade, stopping at specified
+      version, if requested.
    - It only works if the version upgrade(s) /only/ consist of ~ddl~,
      ~dml~, ~ddl-autocommit~, and ~psqltest~ requests; it will /fail/
      if there is a ~shell~ step.
