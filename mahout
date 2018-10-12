@@ -114,6 +114,7 @@ function mahout_init () {
     MHSCH=${MAHOUTSCHEMA:-"Mahout"}
     MPGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-9.1/bin"}
     glog user.notice "Mahout schema: [${MHSCH}]"
+    glog user.notice "Superuser access: ${SUPERUSERACCESS}"
 
     if [ -d $MAHOUTHOME ]; then
 	glog user.error "Directory [${MAHOUTHOME}] already exists - aborting"
@@ -197,7 +198,7 @@ function mahout_init () {
 	echo "# Initialized mahout.control" > ${MAHOUTCTL}
 	echo "# add sections after this to indicate versions" >> ${MAHOUTCTL}
 	echo "version Base"  >> ${MAHOUTCTL}
-	echo "psql Base/base-schema.sql"  >> ${MAHOUTCTL}
+	echo "superuser Base/base-schema.sql"  >> ${MAHOUTCTL}
     fi
     case $PROBLEMS in
 	0)
@@ -531,7 +532,7 @@ function dump_current_schema () {
     glog user.notice "Dump [${LABEL}] schema data via pgcmp-dump into ${TARGET}"
     
     # Dump current schema using pgcmp-dump
-    PGCLABEL=${LABEL} PGURI=${MAINDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${TARGET} ${PGCMPHOME}/pgcmp-dump > /dev/null
+    PGBINDIR=${PGBINDIR} PGCLABEL=${LABEL} PGURI=${MAINDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${TARGET} ${PGCMPHOME}/pgcmp-dump > /dev/null
     rc=$?
     if [ $rc -ne 0 ]; then
 	glog user.error "Failure to use pgcmp to dump schema metadata for label [${LABEL}] - rc=[${rc}]"
@@ -569,7 +570,7 @@ function mahout_capture () {
     local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
     if [ -e ${VERSIONDUMP} ]; then
 	glog user.notice "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
-	PGURI=${COMPAREURI} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+	PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
 	rc=$?
 	case $rc in
 	    2)
@@ -625,7 +626,21 @@ function mahout_capture () {
 			action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
 			echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
 			cat ${sqlscript} >> ${TEMPSQLFILE}
-			echo "create temp table t_ending_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';
+			rc=$?
+			case $rc in
+			    0)
+				glog user.debug "constructed ${sqlscript} into ${TEMPSQLFILE} ok"
+			        ;;
+			    1)
+				glog user.error "SQL script ${sqlscript} not found"
+				exit 2
+				;;
+			    *)
+				glog user.error "Error adding in SQL script ${sqlscript} - rc=[${rc}]"
+				exit 3
+				;;
+			esac				
+				echo "create temp table t_ending_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';
 create temp table t_locks_acquired as select nspname, relname, mode from t_ending_locks e where not exists (select 1 from t_starting_locks s where s.nspname = e.nspname and s.relname = e.relname and s.mode = e.mode);
 " >> ${TEMPSQLFILE}
 			echo "\COPY (select nspname, relname, mode from t_locks_acquired) to '${sqlscript}.${propversion}.locks-acquired';" >> ${TEMPSQLFILE}
@@ -633,10 +648,11 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-			    action_end "capture" "psql script" "${sqlscript}" "${md5sum}" f
+			    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
 			    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" t
+			    rm ${TEMPSQLFILE}
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
@@ -655,10 +671,11 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "superuser script ${sqlscript} failed against database [${MAINDATABASE}]"
-			    action_end capture "psql script" "${sqlscript}" "${md5sum}" f
+			    action_end ${propversion} capture "psql superuser script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
-			    action_end capture "psql script" "${sqlscript}" "${md5sum}" t
+			    action_end ${propversion} capture "psql superuser script" "${sqlscript}" "${md5sum}" t
+			    rm ${TEMPSQLFILE}
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
@@ -856,7 +873,7 @@ function mahout_check () {
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
 
     PGCMPWORK=`mktemp -d /tmp/mahout-check-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1=TempCurrent PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    PGBINDIR=${PGBINDIR} PGCLABEL1=TempCurrent PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
 	0)
@@ -898,7 +915,7 @@ function mahout_upgrade () {
 
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
     PGCMPWORK=`mktemp -d /tmp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    PGBINDIR=${PGBINDIR} PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
 	0)
@@ -953,7 +970,7 @@ function mahout_upgrade () {
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-			    action_end "upgrade" "psql script" "${sqlscript}" "${md5sum}" f
+			    action_end ${propversion} "upgrade" "psql script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
 			    action_end ${propversion} "upgrade" "psql script" "${sqlscript}" "${md5sum}" t
@@ -968,11 +985,11 @@ function mahout_upgrade () {
 			psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
-			    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
-			    action_end upgrade "psql script" "${sqlscript}" "${md5sum}" f
+			    glog user.error "superuser script ${sqlscript} failed against database [${SUPERUSERACCESS}]"
+			    action_end ${propversion} upgrade "psql script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
-			    action_end upgrade "psql script" "${sqlscript}" "${md5sum}" t
+			    action_end ${propversion} upgrade "psql script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
@@ -1030,14 +1047,18 @@ function mahout_install () {
     
     # check that there's no Mahout schema
     local SCHEMAQ="select count(1) from pg_catalog.pg_namespace where nspname='${MAHOUTSCHEMA}';"
-    local FINDSCHEMA=`psql -d ${MAINDATABASE} -qAt -c "${SCHEMAQ}"`
-    if [ ${FINDSCHEMA} == "1" ]; then
-	glog user.error "Database already has Mahout schema ${MAHOUTSCHEMA}"
-	exit 1
-    fi
-
-    local SETUPQ=`mktemp /tmp/mahout-install-setup.XXXXXXXXXXXXXX`
-    mahout_initialize_schema > ${SETUPQ}
+    local MCOUNT=`psql -d ${MAINDATABASE} -qAt -c "${SCHEMAQ}"`
+    case $MCOUNT in
+	1)
+	    glog user.error "Database already has Mahout schema ${MAHOUTSCHEMA}"
+	    exit 1
+	    ;;
+	0)
+	    local SETUPQ=`mktemp /tmp/mahout-install-setup.XXXXXXXXXXXXXX`
+	    mahout_initialize_schema > ${SETUPQ}
+	    ;;
+    esac
+    
     echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'install mahout', 'MahoutInstall', 'install', 'mahout', 'initialized', 't');
   commit;" >> ${SETUPQ}
 
@@ -1073,20 +1094,52 @@ function mahout_install () {
 	    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
   		echo "no action apropos for requires line"
 	    fi
-	    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
+	    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
 		local sqlscript=`echo ${line} | cut -d " " -f 2`
-		glog user.notice "apply SQL Script ${sqlscript}"
+		glog user.notice "apply DDL Script ${sqlscript}"
 		md5sum=`md5sum < ${sqlscript}`
 		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-		action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
+		action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
 		psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
-		    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-		    action_end "capture" "psql script" "${sqlscript}" "${md5sum}" f
+		    glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
+		    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" f
 		    exit 1
 		else
-		    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" t
+		    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" t
+		fi
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^ddl-autocommit ") -eq 1 ]]; then
+		local sqlscript=`echo ${line} | cut -d " " -f 2`
+		glog user.notice "apply DDL-AUTOCOMMIT Script ${sqlscript}"
+		md5sum=`md5sum < ${sqlscript}`
+		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
+		action_start $propversion capture "DDL-AUTOCOMMIT script" ${sqlscript} "${md5sum}"
+		psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} > ${sqlscript}.${propversion}.log 2>&1
+		retcode=$?
+		if [ $retcode -ne 0 ]; then
+		    glog user.error "DDL-AUTOCOMMIT script ${sqlscript} failed against database [${MDB}]"
+		    action_end ${propversion} "capture" "DDL-AUTOCOMMIT script" "${sqlscript}" "${md5sum}" f
+		    exit 1
+		else
+		    action_end ${propversion} "capture" "DDL-AUTOCOMMIT script" "${sqlscript}" "${md5sum}" t
+		fi
+	    fi
+	    if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
+		local sqlscript=`echo ${line} | cut -d " " -f 2`
+		glog user.notice "apply DML Script ${sqlscript}"
+		md5sum=`md5sum < ${sqlscript}`
+		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
+		action_start $propversion capture "DML script" ${sqlscript} "${md5sum}"
+		psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		retcode=$?
+		if [ $retcode -ne 0 ]; then
+		    glog user.error "DML script ${sqlscript} failed against database [${MDB}]"
+		    action_end ${propversion} "capture" "DML script" "${sqlscript}" "${md5sum}" f
+		    exit 1
+		else
+		    action_end ${propversion} "capture" "DML script" "${sqlscript}" "${md5sum}" t
 		fi
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
@@ -1095,20 +1148,22 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		echo ${md5sum} > ${sqlscript}.md5sum
 		action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
+		glog user.notice "Superuser - ${SUPERUSERACCESS} loading script ${sqlscript}, logging to ${sqlscript}.${propversion}.log"
 		psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
-		    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
-		    action_end capture "psql script" "${sqlscript}" "${md5sum}" f
+		    glog user.error "superuser script ${sqlscript} failed against database [${SUPERUSERACCESS}]"
+		    action_end ${propversion} capture "psql script" "${sqlscript}" "${md5sum}" f
 		    exit 1
 		else
-		    action_end capture "psql script" "${sqlscript}" "${md5sum}" t
+		    action_end ${propversion} capture "psql script" "${sqlscript}" "${md5sum}" t
 		fi
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
 		local shellscript=`echo ${line} | cut -d " " -f 2`
 		local shellarg=`echo ${line} | cut -d " " -f 3`
 		cat ${shellscript} | md5sum > ${shellscript}.md5sum
+		glog user.notice "script - ${MAINDATABASE} loading shell script ${shellscript}, logging to ${shellscript}.${propversion}.log"
 		action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"
 		MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ./${shellscript}.${propversion}.log 2>&1
 		action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
@@ -1129,7 +1184,7 @@ function mahout_install () {
 
 	version_load_end ${propversion}
     done
-	
+    
     rm -f ${SETUPQ} ${depfodder} ${dependencies} ${versionorder}
     rm -rf ${versioncontent}
     summary install
@@ -1161,7 +1216,7 @@ function mahout_diff () {
 
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
     PGCMPWORK=`mktemp -d /tmp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    PGBINDIR=${PGBINDIR} PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
 	0)
@@ -1289,7 +1344,7 @@ function mahout_attach () {
 
     # Now, run pgcmp against the two schemas:
     PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+    PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
 	0)
