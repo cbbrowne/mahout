@@ -34,6 +34,10 @@ mahout commands:
     List objects that are being changed by the upgrade
  mahout build [BUILDNAME] [FORMAT]
     Generates a build in specified format, one of (tar, tar.gz, tar.bz)
+ mahout slony-attach
+    Initializes the present non-mahoutized database schemas for Slony cluster
+    to the specified version.  Fail if any of the schemas does not match
+    that version.
  mahout slonik
     Prepares a slonik script to install replication against the latest/specified version
  validate_control
