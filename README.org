@@ -242,7 +242,6 @@ expect the tool to be used:
     - In some cases, external data will be needed, /e.g./ - some
       upgrades required a data file indicating configuration of DML
       changes.
-
   Note that if ~MAHOUTCONFIG~ is set, then the file at the specified location will be used instead of the ~mahout.conf~ file in the Mahout archive.
 
 #+BEGIN_EXAMPLE
@@ -257,6 +256,40 @@ CONFIG_23y=/tmp/redwood-2.3y-currencies.txt
 CONFIG_2226=/tmp/registrar-guid-map-2.2.26.csv
 CONFIG_22=/tmp/registrar-guid-map-2.2.csv
 #+END_EXAMPLE
+*** Slony Specific Parameters
+    If running Mahout against a Slony cluster, some additional configuration is required:
+    - SLONYCLUSTER :: This has the name of the Slony Cluster, which is
+                      what, with a prepended underscore, becomes the
+                      schema name used for Slony's internal
+                      configuration.
+    - SLONYMAINSET :: This is the ID of the replication set into which
+                      things should be merged after all tables and
+                      sequences have been added to replication.
+    - SLONYTEMPSET :: This is the ID of a (not-presently-existing)
+                      replication set that is to be used for tables
+                      and sequences that need to be added.
+    - SLONYIGNORETABLES :: This is a set of tables that should be
+         omitted from replication, represented as a SQL ~IN~ clause.
+    - SLONYIGNORESEQUENCES :: This is a set of sequences that should
+         be omitted from replication, represented as a SQL ~IN~ clause.
+     
+#+BEGIN_EXAMPLE
+COMPARISONDATABASE=postgresql://postgres@localhost:7099/comparisondb
+MAHOUTOMITSCHEMAS="('pg_catalog','information_schema','MaHoutSchema')"
+MAHOUTSCHEMA=MaHoutSchema
+MAINDATABASE=postgresql://postgres@localhost:7099/devdb
+PGCMPHOME=/home/cbbrowne/PostgreSQL/pgcmp
+SUPERUSERACCESS=postgresql://postgres@localhost:7099/postgres
+CONFIG_26=/tmp/redwood-upgrade-2.6.conf
+CONFIG_23y=/tmp/redwood-2.3y-currencies.txt
+CONFIG_2226=/tmp/registrar-guid-map-2.2.26.csv
+CONFIG_22=/tmp/registrar-guid-map-2.2.csv
+SLONYCLUSTER="mahoutTest"
+SLONYMAINSET=1
+SLONYTEMPSET=999
+SLONYIGNORETABLES="('StudlySchema.StudlyCasedTable','plainschema.plaintable')"
+SLONYIGNORESEQUENCES="('StudlySchema.StudlyCasedSeq','plainschema.plainseq)'"
+#+END_EXAMPLE
 
 ** Contents of mahout.control
 
@@ -269,16 +302,22 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
              error to perform DML in a ~ddl~ script, and /mahout/ may
              check for this and report an error if data other than
              schema is modified.
+      - If running against Slony, this will be invoked via ~EXECUTE
+        SCRIPT~ against the origin node for the replication set.
     - ddl-autocommit :: Indicating that the file contains SQL DDL and
                         should be processed using ~psql~ against
                         MAINDATABASE.  Rather than the whole SQL
                         script being run as a single transaction, this
                         runs in autocommit mode, as is needed to
                         create indexes concurrently.
+      - If running against Slony, this will be invoked via running it using ~psql~ against each node in the main replication set (SLONYMAINSET), lastly against the main node.
     - dml :: Indicating that the file contains SQL DML and should be
              processed using ~psql~ against MAINDATABASE.  It is an
              error to perform DDL in a ~dml~ script, and /mahout/ may
              check for this and report an error if schema is modified.
+      - If running against Slony, this will be invoked via running it
+        using ~psql~ against the origin node for the set indicated by
+        SLONYMAINSET.
     - shell :: Indicating that the file should be run as a shell
                script, with the values in ~mahout.conf~ loaded into
                the environment.  It is strongly urged that ~shell~
@@ -288,6 +327,9 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
                not amenable to capturing ~.locks-acquired~ data, as
                the script controls transaction management rather than
                Mahout doing so.
+      - If running against Slony, this is run against the database
+        specified by MAINDATABASE, so that its results will replicate
+        to other nodes.
 
   Complex example of ~mahout.control~ (that might resemble deployment
   of schema for some particular application).
