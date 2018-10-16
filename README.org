@@ -591,7 +591,7 @@ cover these sorts of requirements.
 
 *** Automatically generating documentation
 
-We automatically generate documentation using
+We presently automatically generate documentation using
   - Schema Spy
   - PostgreSQL autodoc
 
@@ -599,6 +599,16 @@ Mahout would not automatically provide this.  It could be an
 interesting extension for Mahout to generate per-version copies of
 documentation, but it is likely appropriate for this to be separated
 out and generated separately.
+
+There are a couple of ideas to be had here:
+
+ - ~mahout schemadocs~  :: It would be interesting to have a Mahout
+      command that can run Schema Spy and/or autodoc to generate
+      documentation.  That seems like an easy extension.
+ - ~mahout release-notes~ :: It is common to expect to have
+      per-version release notes.  For Mahout to support this by having
+      a convention for collecting and generating per-version release
+      notes would be a neat idea.
 
 ** Unorganized Requirement Ideas
 The upgrade system needs to identify and control all schema changes to
