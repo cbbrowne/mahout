@@ -14,8 +14,8 @@ MAHOUT=${MAHOUTHOME}/mahout
 SLONYCLUSTER=mhslonytest
 SLONYMAINSET=10
 SLONYTEMPSET=3141
-SLONYIGNORETABLES='()'
-SLONYIGNORESEQUENCES='()'
+SLONYOMITTABLES='()'
+SLONYOMITSEQUENCES='()'
 SUPERUSER=${SUPERUSER:-"postgres"}
 SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@localhost:7099"}
 
@@ -69,6 +69,24 @@ function glog () {
 }
 
 
+
+kill_all_slons ()
+{
+    glog user.notice "Killing any extant slons based on PID files kept around"
+    if [ -d ${slonydir}/pid ]; then
+	for pidfile in ${slonydir}/pid/node[1-6].pid; do
+	    if [ -f $pidfile ]; then
+		pid=`cat $pidfile`
+		glog user.notice "Shutting down slon based on $pidfile - $pid"
+	    fi
+	done
+    fi
+}
+
+slonydir=$TARGETMHDIR/slony
+mkdir -p ${slonydir}/pid
+
+kill_all_slons
 # Drop databases and then create them
 for node in origin rep2 rep3 rep4 rep5 rep6; do
     glog user.notice "Drop and recreate database ${node} on cluster ${clusterdb}"
@@ -79,11 +97,7 @@ for node in origin rep2 rep3 rep4 rep5 rep6; do
     # Create a wee table as an initialization point
     psql -d ${DBCLUSTER}/${node} \
 	 -c "create schema nullschema;  create table nullschema.wee_table(id serial primary key, data text);"
-
 done
-
-slonydir=$TARGETMHDIR/slony
-mkdir -p ${slonydir}/pid
 
 slonikpreamble=${slonydir}/preamble.slonik
 echo "
@@ -302,17 +316,17 @@ MAINDATABASE=${installuri}
 SUPERUSERACCESS=${SUPERCLUSTER}/origin
 SLONYCLUSTER=${SLONYCLUSTER}
 SLONYMAINSET=${SLONYMAINSET}
-SLONYIGNORESEQUENCES=${SLONYIGNORESEQUENCES}
-SLONYIGNORETABLES=${SLONYIGNORETABLES}
-MAHOUTIGNORESCHEMAS=\"('_${SLONYCLUSTER}', 'nullschema')\"
+SLONYOMITSEQUENCES=${SLONYOMITSEQUENCES}
+SLONYOMITTABLES=${SLONYOMITTABLES}
+MAHOUTOMITSCHEMAS=\"('_${SLONYCLUSTER}', 'nullschema', 'pg_catalog', 'information_schema', 'MaHoutSchema')\"
 
 " >> ${TARGETMHDIR}/mahout.conf.keep
     cp ${TARGETMHDIR}/mahout.conf.keep ${TARGETMHDIR}/mahout.conf
 }
 fix_install_uri
 
-glog user.notice "Install basic schema using mahout"
-(cd ${TARGETMHDIR}; ${MAHOUT} install)
+glog user.notice "Attach base schema to Slony replicas"
+(cd ${TARGETMHDIR}; ${MAHOUT} slony_attach Base)
 
 glog user.notice "Prepare upgrade for v1.1"
 # Create a couple of upgrades
@@ -438,9 +452,5 @@ SUPERUSERACCESS=${SUPERCLUSTER}/${proddb}
 (cd ${TARGETMHDIR}; 
  MAHOUTCONFIG=mahout.conf-production ${MAHOUT} attach 1.4)
 
-
-# Finally, done, kill off slon processes
-for pidfile in ${slonydir}/pid/node[1-6].pid; do
-    pid=`cat $pidfile`
-    glog user.notice "Shutting down slon $pidfile - $pid"
-done
+# At the end, kill off slons
+kill_all_slons

@@ -273,9 +273,9 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
     - SLONYTEMPSET :: This is the ID of a (not-presently-existing)
                       replication set that is to be used for tables
                       and sequences that need to be added.
-    - SLONYIGNORETABLES :: This is a set of tables that should be
+    - SLONYOMITTABLES :: This is a set of tables that should be
          omitted from replication, represented as a SQL ~IN~ clause.
-    - SLONYIGNORESEQUENCES :: This is a set of sequences that should
+    - SLONYOMITSEQUENCES :: This is a set of sequences that should
          be omitted from replication
 ** Things Mahout does not itself do that we do today in Registry Universal Schema
 

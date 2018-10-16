@@ -1559,7 +1559,7 @@ function mahout_slony_attach () {
     nodeprobs=false
     for slnode in `echo $SLONYNODES`; do
 	# ask for connection path for that node
-	SLCPATHQ="select pa_conninfo from \"_${SLONYCLUSTER}.sl_path where pa_server=${slnode} limit 1;"
+	SLCPATHQ="select pa_conninfo from \"_${SLONYCLUSTER}\".sl_path where pa_server=${slnode} limit 1;"
 	NODEDBCONN=`psql -d $MAINDATABASE -qAt -c "${SLCPATHQ}"`
 	glog user.notice "Checking node [${slnode}] for Mahout hygiene at ${NODEDBCONN}"
 
@@ -1603,9 +1603,11 @@ function mahout_slony_attach () {
 	    ;;
 	true)
 	    glog user.error "Problems found when checking replication nodes against Mahout install"
+	    exit 1
 	    ;;
 	*)
 	    glog user.error "invalid nodeprobs - [${nodeprobs}] - should be true/false"
+	    exit 1
     esac
 
 
@@ -1816,7 +1818,7 @@ case $SUBCOMMAND in
 	mahout_slonik
 	;;
     slony_attach)
-	mahout_slony_attach
+	mahout_slony_attach ${PARM1}
 	;;
     history)
 	mahout_history
