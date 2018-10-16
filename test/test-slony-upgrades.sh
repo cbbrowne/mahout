@@ -38,34 +38,44 @@ clusterdb=${DBCLUSTER}/postgres
 NOTICES=0
 WARNINGS=0
 PROBLEMS=0
+CONFIG=0
 
 function glog () {
     local level=$1
     local notice=$2 
-    logger -i -p "${level}" -t "test-slonik-upgrades.sh" "${notice}"
+    local ccode
+    local creset
+    creset='\e[0m'
+    logger -i -p "${level}" -t "test-slony-upgrades.sh" "${notice}"
+    case ${level} in
+	user.info)
+	    ccode='\e[37m'
+	    CONFIG=$((${CONFIG} + 1))
+	user.notice)
+	    ccode='\e[32m'
+	    NOTICES=$((${NOTICES} + 1))
+	    ;;
+	user.warning)
+	    ccode='\e[33m'
+	    WARNINGS=$((${WARNINGS} + 1))
+	    ;;
+	user.error)
+	    ccode='\e[31m'
+	    PROBLEMS=$((${PROBLEMS} + 1))
+	    ;;
+    esac	    
     case ${level} in
 	user.debug)
 	    DEBUGS=$((${DEBUGS} + 1))
   	    ;;
 	*)
-	    echo "${level} test-slonik-upgrades.sh ${notice}"
+	    echo -e "${ccode}${level} test-slony-upgrades.sh ${notice}${creset}"
 	    ;;
     esac
     if [ -f ${MAHOUTLOG} ]; then
 	when=`date --rfc-3339=seconds`
 	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}
     fi
-    case ${level} in
-	user.notice)
-	    NOTICES=$((${NOTICES} + 1))
-	    ;;
-	user.warning)
-	    WARNINGS=$((${WARNINGS} + 1))
-	    ;;
-	user.error)
-	    PROBLEMS=$((${PROBLEMS} + 1))
-	    ;;
-    esac	    
 }
 
 
@@ -89,7 +99,7 @@ mkdir -p ${slonydir}/pid
 kill_all_slons
 # Drop databases and then create them
 for node in origin rep2 rep3 rep4 rep5 rep6; do
-    glog user.notice "Drop and recreate database ${node} on cluster ${clusterdb}"
+    glog user.info "Drop and recreate database ${node} on cluster ${clusterdb}"
     psql -d ${clusterdb} \
 	 -c "drop database if exists ${node};"
     psql -d ${clusterdb} \
@@ -107,7 +117,7 @@ cluster name=${SLONYCLUSTER};
 for nodeinfo in origin:1 rep2:2 rep3:3 rep4:4: rep5:5 rep6:6; do
     nodenum=`echo $nodeinfo | cut -d : -f 2` 
     nodedb=`echo $nodeinfo | cut -d : -f 1`
-    glog user.notice "Set up slon.conf for node $nodenum"
+    glog user.info "Set up slon.conf for node $nodenum"
     echo "### Slony conf for node ${nodenum}
 pid_file='${slonydir}/pid/node${nodenum}.pid'
 cluster_name='${SLONYCLUSTER}'
@@ -191,7 +201,7 @@ comparisondb=comparisondb
 compuri=${DBCLUSTER}/${comparisondb}
 
 for i in ${devdb} ${comparisondb}; do
-    glog user.notice "Drop and recreate database ${i} on cluster ${clusterdb}"
+    glog user.info "Drop and recreate database ${i} on cluster ${clusterdb}"
     psql -d ${clusterdb} \
 	 -c "drop database if exists ${i};"
     psql -d ${clusterdb} \
@@ -307,7 +317,7 @@ function fix_install_uri () {
     # Drop alternate configuration into installation Mahout config
     local installuri
     installuri=${DBCLUSTER}/origin
-    glog user.notice "fix up install instance to use ${installuri} rather than the URI provided in the build"
+    glog user.info "fix up install instance to use ${installuri} rather than the URI provided in the build"
     egrep -v MAINDATABASE ${TARGETMHDIR}/mahout.conf | \
     egrep -v SUPERUSERACCESS ${TARGETMHDIR}/mahout.conf \
 	> ${TARGETMHDIR}/mahout.conf.keep
@@ -353,7 +363,7 @@ glog user.notice "do upgrade of the install instance to run v1.1"
 cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
 # And try to install the upgrade
-(cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+(cd ${TARGETMHDIR}; ${MAHOUT} slonik)
 
 echo "
 
@@ -379,8 +389,9 @@ glog user.notice "mahout capture on v1.2"
 glog user.notice "do upgrade of the install instance to run v1.2"
 cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
-(cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
 
+exit
+(cd ${TARGETMHDIR}; ${MAHOUT} slonik)
 
 echo "
 
@@ -429,28 +440,9 @@ glog user.notice "mahout capture on v1.4"
 glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
 cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
-(cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+(cd ${TARGETMHDIR}; ${MAHOUT} slonik)
 
 glog user.notice "Completed upgrade to v1.4"
-
-
-### Now, we start using the Slony cluster...
-
-# Do an install of base against the replica cluster...
-
-# It's a clone of the dev schema, so we need to drop the MAHOUT schema
-psql -d ${produri} \
-     -c "drop schema \"MaHoutSchema\" cascade;"
-
-# modify control file to indicate the production DB
-cp ${TARGETMHDIR}/mahout.conf ${TARGETMHDIR}/mahout.conf-production
-echo "
-MAINDATABASE=${DBCLUSTER}/${proddb}
-SUPERUSERACCESS=${SUPERCLUSTER}/${proddb}
-
-" >> ${TARGETMHDIR}/mahout.conf-production
-(cd ${TARGETMHDIR}; 
- MAHOUTCONFIG=mahout.conf-production ${MAHOUT} attach 1.4)
 
 # At the end, kill off slons
 kill_all_slons

@@ -53,31 +53,41 @@ MAHOUTLOG=.mahout-log
 
 function glog () {
     local level=$1
-    local notice=$2 
+    local notice=$2
+    local ccode
+    local creset
+    creset='\e[0m'
     logger -i -p "${level}" -t "mahout ${SUBCOMMAND}" "${notice}"
-    case ${level} in
-	user.debug)
-	    DEBUGS=$((${DEBUGS} + 1))
-  	    ;;
-	*)
-	    echo "${level} mahout ${notice}"
-	    ;;
-    esac
     if [ -d ${MAHOUTLOG} ]; then
 	when=`date --rfc-3339=seconds`
 	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}/mahout.log
     fi
     case ${level} in
+	user.info)
+	    ccode='\e[37m'
+	    CONFIG=$((${CONFIG} + 1))
+	    ;;
 	user.notice)
+	    ccode='\e[32m'
 	    NOTICES=$((${NOTICES} + 1))
 	    ;;
 	user.warning)
+	    ccode='\e[33m'
 	    WARNINGS=$((${WARNINGS} + 1))
 	    ;;
 	user.error)
+	    ccode='\e[31m'
 	    PROBLEMS=$((${PROBLEMS} + 1))
 	    ;;
     esac	    
+    case ${level} in
+	user.debug)
+	    DEBUGS=$((${DEBUGS} + 1))
+  	    ;;
+	*)
+	    echo -e "${ccode}${level} mahout ${notice}${creset}"
+	    ;;
+    esac
 }
 
 function summary () {
@@ -87,12 +97,12 @@ function summary () {
 
 function read_mahout_config () {
     if [[ "x${MAHOUTCONFIG}" == "x" ]]; then
-	glog user.notice "mahout ${SUBCOMMAND} loading config from mahout.conf"
+	glog user.info "mahout ${SUBCOMMAND} loading config from mahout.conf"
 	source mahout.conf
     else
 	### See if MAHOUTCONFIG exists, and is a file
 	if [[ -f ${MAHOUTCONFIG} ]]; then
-	    glog user.notice "mahout ${SUBCOMMAND} loading config from [${MAHOUTCONFIG}]"
+	    glog user.info "mahout ${SUBCOMMAND} loading config from [${MAHOUTCONFIG}]"
 	    source ${MAHOUTCONFIG}
 	else
 	    glog user.error "mahout ${SUBCOMMAND} cannot load config from [${MAHOUTCONFIG}]"
@@ -117,8 +127,8 @@ function mahout_init () {
     PGCH=${PGCMPHOME:-"/home/cbbrowne/PostgreSQL/pgcmp"}
     MHSCH=${MAHOUTSCHEMA:-"Mahout"}
     MPGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-9.1/bin"}
-    glog user.notice "Mahout schema: [${MHSCH}]"
-    glog user.notice "Superuser access: ${SUPERUSERACCESS}"
+    glog user.info "Mahout schema: [${MHSCH}]"
+    glog user.info "Superuser access: ${SUPERUSERACCESS}"
 
     if [ -d $MAHOUTHOME ]; then
 	glog user.error "Directory [${MAHOUTHOME}] already exists - aborting"
@@ -181,7 +191,7 @@ function mahout_init () {
 	exit 1
     else
 	mkdir ${MAHOUTCAP}
-	glog user.notice "Setting up directory MAHOUTCAP [${MAHOUTCAP}]"
+	glog user.info "Setting up directory MAHOUTCAP [${MAHOUTCAP}]"
     fi
     MAHOUTTMP=${MAHOUTHOME}/.mahout-temp
     mkdir ${MAHOUTTMP}
@@ -192,7 +202,7 @@ function mahout_init () {
 	exit 1
     else
 	mkdir ${MAHOUTBLD}
-	glog user.notice "Setting up directory MAHOUTBLD [${MAHOUTBLD}]"
+	glog user.info "Setting up directory MAHOUTBLD [${MAHOUTBLD}]"
     fi
     
     MAHOUTCTL=${MAHOUTHOME}/mahout.control
@@ -209,18 +219,18 @@ function mahout_init () {
 	    glog user.notice "mahout init complete: no serious configuration problems noticed"
 	    ;;
 	*)
-	    glog user.notice "mahout init encountered ${PROBLEMS} serious configuration problems"
+	    glog user.warning "mahout init encountered ${PROBLEMS} serious configuration problems"
 	    ;;
     esac
 
     mkdir $MAHOUTHOME/Base
-    glog user.notice "Dumping database ${MDB} to Base/base-schema.sql"
+    glog user.info "Dumping database ${MDB} to Base/base-schema.sql"
     pg_dump -d ${MDB} -s > $MAHOUTHOME/Base/base-schema.sql
     cat $MAHOUTHOME/Base/base-schema.sql | md5sum > $MAHOUTHOME/Base/base-schema.sql.md5sum
     checksum=`cat $MAHOUTHOME/Base/base-schema.sql.md5sum`
-    glog user.notice "mahout: initial control file set up indicating schema from ${MDB} as schema"
-    glog user.notice "mahout: base schema set up with checksum [${checksum}]"
-    glog user.notice "mahout: please edit ${MO} to validate configuration parameters"
+    glog user.info "mahout: initial control file set up indicating schema from ${MDB} as schema"
+    glog user.info "mahout: base schema set up with checksum [${checksum}]"
+    glog user.info "mahout: please edit ${MO} to validate configuration parameters"
 
     echo "begin;  create schema if not exists \"${MHSCH}\";  set search_path to \"${MHSCH}\";
     create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
@@ -239,11 +249,11 @@ function mahout_init () {
 	glog user.error "Unable to setup mahout schema in database [${MDB}]"
 	exit 1
     else
-	glog user.notice "Setup mahout schema in database [${MDB}]"
+	glog user.info "Setup mahout schema in database [${MDB}]"
     fi
     
     # And capture the pgcmp output as .mahout-data/Base.pgcmp
-    (cd ${MAHOUTHOME}; MAINDATABASE=${MDB} MAHOUTOMITSCHEMAS="${MAHOUTOMITSCHEMAS}" dump_current_schema Base ${MAHOUTHOME}/.mahout-data/Base.pgcmp)
+    (cd ${MAHOUTHOME}; MAHOUTOMITSCHEMAS="${MAHOUTOMITSCHEMAS}" dump_current_schema Base ${MAHOUTHOME}/.mahout-data/Base.pgcmp $MDB)
     summary init
 }
 
@@ -312,7 +322,7 @@ function calculate_dependencies () {
 	    echo "${drequires} ${dversion}" >> ${dependencies}
 	fi
     done < ${depfodder}
-    glog user.notice "Generated dependency list: ${dependencies}"
+    glog user.info "Generated dependency list: ${dependencies}"
     tsort ${dependencies} > ${versionorder}
     retcode=$?
     if [ $retcode -ne 0 ]; then
@@ -325,9 +335,9 @@ function calculate_dependencies () {
 
 function validate_control () {
     local CTL=${PWD}/mahout.control
-    glog user.notice "validate_control: validating control file [${CTL}]"
+    glog user.info "validate_control: validating control file [${CTL}]"
     if [ -e ${CTL} ]; then
-	glog user.notice "Found [${CTL}]"
+	glog user.info "Found [${CTL}]"
 	local dropcomments=`mktemp /tmp/mahout-ctl-check.sanscomments.XXXXXXXXXXX`
 	local dropwhitespace=`mktemp /tmp/mahout-ctl-check.sanswhitespace.XXXXXXXXXXX`
 	local badlines=`mktemp /tmp/mahout-ctl-check.badlines.XXXXXXXXXXX`
@@ -472,7 +482,7 @@ function version_load_start () {
 	glog user.error "Unable to set up version log for version [${version}] against database [${MAINDATABASE}]"
 	exit 1
     else
-	glog user.notice "Begin load of version [${version}] to database [${MAINDATABASE}]"
+	glog user.info "Begin load of version [${version}] to database [${MAINDATABASE}]"
     fi
 }
 
@@ -533,15 +543,16 @@ function action_end () {
 function dump_current_schema () {
     local LABEL=$1
     local TARGET=$2
-    glog user.notice "Dump [${LABEL}] schema data via pgcmp-dump into ${TARGET}"
+    local DATABASE=$3
+    glog user.info "Dump [${LABEL}] schema data for database [${DATABASE}] via pgcmp-dump into ${TARGET}"
     
     # Dump current schema using pgcmp-dump
-    PGBINDIR=${PGBINDIR} PGCLABEL=${LABEL} PGURI=${MAINDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${TARGET} ${PGCMPHOME}/pgcmp-dump > /dev/null
+    PGBINDIR=${PGBINDIR} PGCLABEL=${LABEL} PGURI=${DATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPOUTPUT=${TARGET} ${PGCMPHOME}/pgcmp-dump > /dev/null
     rc=$?
     if [ $rc -ne 0 ]; then
 	glog user.error "Failure to use pgcmp to dump schema metadata for label [${LABEL}] - rc=[${rc}]"
     else
-	glog user.notice "Dumped current schema pgcmp data label [${LABEL}] to ${TARGET}"
+	glog user.notice "Dumped schema pgcmp for database [${DATABASE}] data label [${LABEL}] to ${TARGET}"
     fi
 }
 
@@ -558,22 +569,22 @@ function mahout_capture () {
     
     # acquire configuration from mahout.conf
     read_mahout_config
-    glog user.notice "Applying changes to database MAINDATABASE=[${MAINDATABASE}]"
+    glog user.info "Applying changes to database MAINDATABASE=[${MAINDATABASE}]"
 
     # check the version in the database
     local DBVERSION=`get_mahout_version "${MAINDATABASE}"`
-    glog user.notice "capture: found version: ${DBVERSION}"
+    glog user.info "capture: found version: ${DBVERSION}"
 
     # Use pgcmp to check that the version in the database
     # matches... Note that it should match EXACTLY; this is not a
     # production application
     CAPTUREFILE=${PWD}/.mahout-temp/capturedb.pgcmp
-    MAHOUTOMITSCHEMAS="${MAHOUTOMITSCHEMAS}" dump_current_schema capturedb ${CAPTUREFILE}
+    MAHOUTOMITSCHEMAS="${MAHOUTOMITSCHEMAS}" dump_current_schema capturedb ${CAPTUREFILE} ${MAINDATABASE}
 
     # we should compare against the pgcmp dump
     local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
     if [ -e ${VERSIONDUMP} ]; then
-	glog user.notice "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
+	glog user.info "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
 	PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
 	rc=$?
 	case $rc in
@@ -804,7 +815,7 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 		
 		# then run pgcmp-dump to get the version
 		VERSIONOUTPUT=${PWD}/.mahout-data/${propversion}.pgcmp
-		dump_current_schema ${propversion} ${VERSIONOUTPUT}
+		dump_current_schema ${propversion} ${VERSIONOUTPUT} ${MAINDATABASE}
    	    else
 		glog user.debug "Capture not applying earlier version ${propversion}"
 	    fi
@@ -830,11 +841,11 @@ function mahout_check () {
     read_mahout_config
     # check the version in the database
     DBVERSION=`get_mahout_version ${MAINDATABASE}`
-    glog user.notice "check: found version: ${DBVERSION}"
+    glog user.info "check: found version: ${DBVERSION}"
     
     # Dump current schema using pgcmp-dump
     CURRENTCMP=${PWD}/.mahout-temp/CurrentSchema.pgcmp
-    dump_current_schema CurrentSchema ${CURRENTCMP}
+    dump_current_schema CurrentSchema ${CURRENTCMP} ${MAINDATABASE}
     
     # Also check md5 checksums on /all/ scripts
     #    - just a new loop...
@@ -911,13 +922,13 @@ function mahout_upgrade () {
     read_mahout_config
     # check the version in the database
     DBVERSION=`get_mahout_version ${MAINDATABASE}`
-    glog user.notice "upgrade: found version: ${DBVERSION}"
+    glog user.info "upgrade: found version: ${DBVERSION}"
 
     # Dump current schema using pgcmp-dump
     local CURRENTCMP=${PWD}/.mahout-temp/CurrentSchema.pgcmp
-    dump_current_schema CurrentSchema ${CURRENTCMP}
+    dump_current_schema CurrentSchema ${CURRENTCMP} ${MAINDATABASE}
 
-    glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
+    glog user.info "run pgcmp to examine schema for differences against version ${DBVERSION}"
     PGCMPWORK=`mktemp -d /tmp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
     PGBINDIR=${PGBINDIR} PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
@@ -1033,7 +1044,6 @@ function mahout_initialize_schema () {
     create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
   truncate version_log;
   truncate action_log;"
-
 }
 
 function mahout_install () {
@@ -1072,7 +1082,7 @@ function mahout_install () {
 	glog user.error "Unable to setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
 	exit 1
     else
-	glog user.notice "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
+	glog user.info "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
 	rm -f ${SETUPQ}
     fi
     
@@ -1087,7 +1097,7 @@ function mahout_install () {
     glog user.notice "Split versions"
 
     for propversion in `cat ${versionorder}`; do
-	glog user.notice "mahout install working on version ${propversion}"
+	glog user.info "mahout install working on version ${propversion}"
 	version_load_start ${propversion}
 
 	while read line
@@ -1152,7 +1162,7 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		echo ${md5sum} > ${sqlscript}.md5sum
 		action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
-		glog user.notice "Superuser - ${SUPERUSERACCESS} loading script ${sqlscript}, logging to ${sqlscript}.${propversion}.log"
+		glog user.info "Superuser - ${SUPERUSERACCESS} loading script ${sqlscript}, logging to ${sqlscript}.${propversion}.log"
 		psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
@@ -1167,7 +1177,7 @@ function mahout_install () {
 		local shellscript=`echo ${line} | cut -d " " -f 2`
 		local shellarg=`echo ${line} | cut -d " " -f 3`
 		cat ${shellscript} | md5sum > ${shellscript}.md5sum
-		glog user.notice "script - ${MAINDATABASE} loading shell script ${shellscript}, logging to ${shellscript}.${propversion}.log"
+		glog user.info "script - ${MAINDATABASE} loading shell script ${shellscript}, logging to ${shellscript}.${propversion}.log"
 		action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"
 		MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ./${shellscript}.${propversion}.log 2>&1
 		action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
@@ -1212,11 +1222,11 @@ function mahout_diff () {
     
     # check the version in the database
     DBVERSION=`get_mahout_version ${MAINDATABASE}`
-    glog user.notice "diff: found version: ${DBVERSION}"
+    glog user.info "diff: found version: ${DBVERSION}"
     
     # Dump current schema using pgcmp-dump
     local CURRENTCMP=${PWD}/.mahout-temp/CurrentSchema.pgcmp
-    dump_current_schema CurrentSchema ${CURRENTCMP}
+    dump_current_schema CurrentSchema ${CURRENTCMP} ${MAINDATABASE}
 
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
     PGCMPWORK=`mktemp -d /tmp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
@@ -1265,7 +1275,7 @@ function mahout_history () {
 
     # check the version in the database
     DBVERSION=`get_mahout_version ${MAINDATABASE}`
-    glog user.notice "history: Schema on version: ${DBVERSION}"
+    glog user.info "history: Schema on version: ${DBVERSION}"
     echo ""
 
     # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
@@ -1314,13 +1324,13 @@ function mahout_attach () {
     
     # acquire configuration from mahout.conf
     read_mahout_config
-    glog user.notice "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
+    glog user.info "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
 
     # Verify that the version PRODVERSION matches against a valid
     # version, e.g. - one where there is a dump found in .mahout-data
     CMPDATA=${PWD}/.mahout-data/${PRODVERSION}.pgcmp
     if [[ -e ${CMPDATA} ]]; then
-	glog user.notice "Found comparison data for version - [${CMPDATA}]"
+	glog user.info "Found comparison data for version - [${CMPDATA}]"
     else
 	glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
 	exit 1
@@ -1343,7 +1353,7 @@ function mahout_attach () {
     # any unexpected differences lead to failing the install
     LABEL="production-${PRODVERSION}"
     CAPTUREFILE=${PWD}/.mahout-temp/attach-${PRODVERSION}.pgcmp
-    dump_current_schema "${LABEL}" ${CAPTUREFILE}
+    dump_current_schema "${LABEL}" ${CAPTUREFILE} ${MAINDATABASE}
 
     # Now, run pgcmp against the two schemas:
     PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
@@ -1397,7 +1407,7 @@ function mahout_build () {
     local BTYPE=$2
     local BHOME=`mktemp -d /tmp/mahout-build-path.XXXXXXXXXXXXXXX`
     mkdir ${BHOME}/${BLABEL}
-    glog user.notice "mahout build generated build directory ${BHOME}/${BLABEL}"
+    glog user.info "mahout build generated build directory ${BHOME}/${BLABEL}"
     tar cf - . | (cd ${BHOME}/${BLABEL}; tar xf -)
     glog user.notice "mahout build copied build material to ${BHOME}/${BLABEL}"
 
@@ -1449,7 +1459,7 @@ function mahout_attach () {
     
     # acquire configuration from mahout.conf
     read_mahout_config
-    glog user.notice "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
+    glog user.info "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
 
     # Verify that the version PRODVERSION matches against a valid
     # version, e.g. - one where there is a dump found in .mahout-data
@@ -1481,7 +1491,7 @@ function mahout_attach () {
     # any unexpected differences lead to failing the install
     LABEL="production-${PRODVERSION}"
     CAPTUREFILE=${PWD}/.mahout-temp/attach-${PRODVERSION}.pgcmp
-    dump_current_schema "${LABEL}" ${CAPTUREFILE}
+    dump_current_schema "${LABEL}" ${CAPTUREFILE} ${MAINDATABASE}
 
     # Now, run pgcmp against the two schemas:
     PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
@@ -1517,7 +1527,7 @@ function mahout_attach () {
 	glog user.error "Unable to setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
 	exit 1
     else
-	glog user.notice "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
+	glog user.info "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
 	rm -f ${SETUPQ}
     fi
     glog user.notice "mahout attach completed for version [${PRODVERSION}] in database [${MAINDATABASE}]"
@@ -1539,13 +1549,12 @@ function mahout_slony_attach () {
     
     # acquire configuration from mahout.conf
     read_mahout_config
-    glog user.notice "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
-
+    glog user.info "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
     # Verify that the version PRODVERSION matches against a valid
     # version, e.g. - one where there is a dump found in .mahout-data
     CMPDATA=${PWD}/.mahout-data/${PRODVERSION}.pgcmp
     if [[ -e ${CMPDATA} ]]; then
-	glog user.notice "Found comparison data for version - [${CMPDATA}]"
+	glog user.info "Found comparison data for version - [${CMPDATA}]"
     else
 	glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
 	exit 1
@@ -1561,7 +1570,7 @@ function mahout_slony_attach () {
 	# ask for connection path for that node
 	SLCPATHQ="select pa_conninfo from \"_${SLONYCLUSTER}\".sl_path where pa_server=${slnode} limit 1;"
 	NODEDBCONN=`psql -d $MAINDATABASE -qAt -c "${SLCPATHQ}"`
-	glog user.notice "Checking node [${slnode}] for Mahout hygiene at ${NODEDBCONN}"
+	glog user.info "Checking node [${slnode}] for Mahout hygiene at ${NODEDBCONN}"
 
 	# Verify that the database does NOT have Mahout installed, e.g. -
 	# no Mahout schema
@@ -1576,7 +1585,7 @@ function mahout_slony_attach () {
 	# any unexpected differences lead to failing the install
 	LABEL="node-${slnode}-${PRODVERSION}"
 	CAPTUREFILE=${PWD}/.mahout-temp/attach-node-${slnode}-${PRODVERSION}.pgcmp
-	dump_current_schema "${LABEL}" ${CAPTUREFILE}
+	dump_current_schema "${LABEL}" ${CAPTUREFILE} ${NODEDBCONN}
 
 	# Now, run pgcmp against the two schemas:
 	PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
@@ -1610,32 +1619,54 @@ function mahout_slony_attach () {
 	    exit 1
     esac
 
+    #  So, hygiene is good.  No differences.  Time to add Mahout
+    #  schema to all the nodes
 
-    # But if there are no differences, then we need to add mahout
-    # schema as is added by mahout install/init, and indicate
-    # that it was marked as OK with the specified version
+
     local SETUPQ=`mktemp /tmp/mahout-attach-setup.XXXXXXXXXXXXXX`
     mahout_initialize_schema > ${SETUPQ}
-    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
+    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'slony attach mahout', '${PRODVERSION}', 'slony_attach', 'mahout', 'initialized', 't');
     insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', now(), clock_timestamp());
   commit;" >> ${SETUPQ}
 
-    psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
-    retcode=$?
-    if [ $retcode -ne 0 ]; then
-	glog user.error "Unable to setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
-	exit 1
-    else
-	glog user.notice "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
-	rm -f ${SETUPQ}
-    fi
+    nodeprobs=false
+    for slnode in `echo $SLONYNODES`; do
+	# ask for connection path for that node
+	SLCPATHQ="select pa_conninfo from \"_${SLONYCLUSTER}\".sl_path where pa_server=${slnode} limit 1;"
+	NODEDBCONN=`psql -d $MAINDATABASE -qAt -c "${SLCPATHQ}"`
+	glog user.notice "Attach Mahout schema to node ${slnode}"
+
+	psql -d ${NODEDBCONN} -f ${SETUPQ} > /dev/null 2>&1
+	
+	retcode=$?
+	if [ $retcode -ne 0 ]; then
+	    glog user.error "Unable to setup mahout schema ${MAHOUTSCHEMA} in database [${NODEDBCONN}] - script $SETUPQ"
+	    nodeprobs=true
+	else
+	    glog user.notice "Setup mahout schema ${MAHOUTSCHEMA} in database [${NODEDBCONN}]"
+	fi
+    done
+    case $nodeprobs in
+	false)
+	    glog user.notice "No problems attaching Mahout schema to Slony nodes"
+	    rm -f ${SETUPQ}
+	    ;;
+	true)
+	    glog user.error "Problems found when attaching Mahout schema to Slony nodes"
+	    exit 1
+	    ;;
+	*)
+	    glog user.error "invalid nodeprobs - [${nodeprobs}] - should be true/false"
+	    exit 1
+    esac
     glog user.notice "mahout attach completed for version [${PRODVERSION}] in database [${MAINDATABASE}]"
-    summary attach
+    summary slony_attach
 }
 
+### Applying DDL via slonik...
 ### Overview...
 ### - hygiene checks, that Mahout is in good shape
-### - verify that DB node is the origin
+### - verify that DB node is the origin for the set
 ### - pull list of other nodes
 ### - iterate through nodes, verifying
 ###   - Version matches
@@ -1643,12 +1674,17 @@ function mahout_slony_attach () {
 ###   - Get shape of cluster
 ###   - calculate dependencies (of dependencies in Mahout)
 ###   - for each version being upgraded
-###     - get ddl requests, drop into Slonik script
-###     - determine the tables to be added, generating SET ADD TABLE
-###     - determine the sequences to be added, generating SET ADD SEQUENCE
-###     - determine the tables to be dropped, generating SET DROP TABLE
-###     - determine the sequences to be dropped, generating SET DROP SEQUENCE
-###     - something up with ddl vs psql vs ddl-autocommit vs superuser
+###     - loop through actions
+###       - For DDL:
+###         - get ddl requests, drop into Slonik script
+###         - determine the tables to be added, generating SET ADD TABLE
+###         - determine the sequences to be added, generating SET ADD SEQUENCE
+###         - determine the tables to be dropped, generating SET DROP TABLE
+###         - determine the sequences to be dropped, generating SET DROP SEQUENCE
+###         - something up with ddl vs psql vs ddl-autocommit vs superuser
+###       - for shell:
+###         - run against origin node
+
 function mahout_slonik () {
     # starts similarly to mahout_upgrade, checking hygiene
     
@@ -1664,30 +1700,94 @@ function mahout_slonik () {
     # acquire configuration from mahout.conf
     read_mahout_config
     # check the version in the database
-    DBVERSION=`get_mahout_version ${MAINDATABASE}`
-    glog user.notice "slonik: found version: ${DBVERSION}"
+    PRODVERSION=`get_mahout_version ${MAINDATABASE}`
+    glog user.info "slonik: found version: ${PRODVERSION} on node [${MAINDATABASE}]"
 
-    # Dump current schema using pgcmp-dump
-    local CURRENTCMP=${PWD}/.mahout-temp/CurrentSchema.pgcmp
-    dump_current_schema CurrentSchema ${CURRENTCMP}
+    CMPDATA=${PWD}/.mahout-data/${PRODVERSION}.pgcmp
+    if [[ -e ${CMPDATA} ]]; then
+	glog user.info "Found comparison data for version - [${CMPDATA}]"
+    else
+	glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
+	exit 1
+    fi
 
-    glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
-    PGCMPWORK=`mktemp -d /tmp/mahout-slonik-pgcmp-work.XXXXXXXXXXX`
-    PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
-    rc=$?
-    case ${rc} in
-	0)
-	    glog user.notice "pgcmp found exact match"
+    ## Need to check ALL the nodes for this stuff...
+    ## Grab the list of nodes involved with the set SLONYMAINSET, providers AND subscribers
+    NODEQUERY="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET}
+           union select sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
+    SLONYNODES=`psql -d $MAINDATABASE -qAt -c "${NODEQUERY}" | sort -n`
+    nodeprobs=false
+    for slnode in `echo $SLONYNODES`; do
+	# ask for connection path for that node
+	SLCPATHQ="select pa_conninfo from \"_${SLONYCLUSTER}\".sl_path where pa_server=${slnode} limit 1;"
+	NODEDBCONN=`psql -d $MAINDATABASE -qAt -c "${SLCPATHQ}"`
+	glog user.info "Checking node [${slnode}] for Mahout hygiene at ${NODEDBCONN}"
+
+	# Verify that the database does agrees on latest Mahout version
+	versionquery="select version from \"${MAHOUTSCHEMA}\".version_log order by install_end desc limit 1;"
+	nodeversion=`psql -d "${NODEDBCONN}" -c "${versionquery}" -qAt`
+	rc=$?
+	case ${rc} in
+	    0)
+		glog user.notice "node ${slnode} - [${NODEDBCONN}] has version [${nodeversion}]"
+		;;
+	    1)
+		glog user.error "unable to get version for node ${slnode} - [${NODEDBCONN}]"
+		nodeprobs=true
+		;;
+	    2)
+		glog user.error "unable to connect to node ${slnode} - [${NODEDBCONN}]"
+		nodeprobs=true
+		;;
+	    3)
+		glog user.error "unable to query node for version - ${slnode} - [${NODEDBCONN}]"
+		nodeprobs=true
+		;;
+	esac
+        if [[ $nodeversion == $PRODVERSION ]]; then
+	    glog user.notice "node $slnode has version $nodeversion matching main node"
+	else
+	    glog user.error "node $slnode has version $nodeversion mismatching main node with $PRODVERSION"
+	    nodeprobs=true
+	fi
+
+	# run pgcmp to capture the node-specific data
+	LABEL="node-${slnode}-${PRODVERSION}"
+	CAPTUREFILE=${PWD}/.mahout-temp/attach-node-${slnode}-${PRODVERSION}.pgcmp
+	dump_current_schema "${LABEL}" ${CAPTUREFILE} ${NODEDBCONN}
+
+	# And run pgcmp against the two schemas
+	PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
+	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+	rc=$?
+	case ${rc} in
+	    0)
+		glog user.notice "pgcmp found exact match"
+		rm -rf ${PGCMPWORK}
+		;;
+	    2)
+		glog user.error "pgcmp failed to run properly - see ${PGCMPWORK}/perform-comparison.log"
+		nodeprobs=true
+		;;
+	    3)
+		glog user.error "pgcmp found differences inadequately explained - see ${PGCMPWORK}/perform-comparison.log"
+		nodeprobs=true
+		;;
+	esac
+    done
+    case $nodeprobs in
+	false)
+	    glog user.notice "No problems found when checking replication nodes against Mahout install"
 	    ;;
-	2)
-	    glog user.error "pgcmp failed to run properly - see ${PGCMPWORK}/perform-comparison.log"
+	true)
+	    glog user.error "Problems found when checking replication nodes against Mahout install"
 	    exit 1
 	    ;;
-	3)
-	    glog user.error "pgcmp found differences inadequately explained"
-	    exit 2
-	    ;;
+	*)
+	    glog user.error "invalid nodeprobs - [${nodeprobs}] - should be true/false"
+	    exit 1
     esac
+
     # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
     local depfodder=`mktemp /tmp/mahout-slonik-dependency-fodder.XXXXXXXXXXXX`
     local dependencies=`mktemp /tmp/mahout-slonik-dependencies.XXXXXXXXXXXX`

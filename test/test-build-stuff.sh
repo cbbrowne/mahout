@@ -43,40 +43,51 @@ produri=${DBCLUSTER}/${proddb}
 NOTICES=0
 WARNINGS=0
 PROBLEMS=0
+CONFIG=0
 
 function glog () {
     local level=$1
     local notice=$2 
+    local ccode
+    local creset
+    creset='\e[0m'
     logger -i -p "${level}" -t "test-build-stuff.sh" "${notice}"
+    case ${level} in
+	user.info)
+	    ccode='\e[37m'
+	    CONFIG=$((${CONFIG} + 1))
+	    ;;
+	user.notice)
+	    ccode='\e[32m'
+	    NOTICES=$((${NOTICES} + 1))
+	    ;;
+	user.warning)
+	    ccode='\e[33m'
+	    WARNINGS=$((${WARNINGS} + 1))
+	    ;;
+	user.error)
+	    ccode='\e[31m'
+	    PROBLEMS=$((${PROBLEMS} + 1))
+	    ;;
+    esac	    
     case ${level} in
 	user.debug)
 	    DEBUGS=$((${DEBUGS} + 1))
   	    ;;
 	*)
-	    echo "${level} test-build-stuff.sh ${notice}"
+	    echo -e "${ccode}${level} test-build-stuff.sh ${notice}${creset}"
 	    ;;
     esac
     if [ -f ${MAHOUTLOG} ]; then
-	when=$(date --rfc-3339=seconds)
+	when=`date --rfc-3339=seconds`
 	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}
     fi
-    case ${level} in
-	user.notice)
-	    NOTICES=$((${NOTICES} + 1))
-	    ;;
-	user.warning)
-	    WARNINGS=$((${WARNINGS} + 1))
-	    ;;
-	user.error)
-	    PROBLEMS=$((${PROBLEMS} + 1))
-	    ;;
-    esac	    
 }
 
 
 # Drop databases and then create them
 for i in ${devdb} ${comparisondb} ${installdb} ${proddb}; do
-    glog user.notice "Drop and recreate database ${i} on cluster ${clusterdb}"
+    glog user.info "Drop and recreate database ${i} on cluster ${clusterdb}"
     psql -d ${clusterdb} \
 	 -c "drop database if exists ${i};"
     psql -d ${clusterdb} \
@@ -198,7 +209,7 @@ cp -r ${PROJECTNAME} ${TARGETDIR}
 
 function fix_install_uri () {
 # Drop alternate configuration into installation Mahout config
-    glog user.notice "fix up install instance to use ${installuri} rather than the URI provided in the build"
+    glog user.info "fix up install instance to use ${installuri} rather than the URI provided in the build"
     egrep -v MAINDATABASE ${TARGETMHDIR}/mahout.conf | \
     egrep -v SUPERUSERACCESS ${TARGETMHDIR}/mahout.conf \
 	> ${TARGETMHDIR}/mahout.conf.keep
