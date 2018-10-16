@@ -6,8 +6,8 @@ set -e -u
 REGUSER=${REGUSER:-"cbbrowne"}
 SUPERUSER=${SUPERUSER:-"postgres"}
 PGCMPHOME=${PGCMPHOME:-${HOME}/PostgreSQL/pgcmp}
-DBCLUSTER=${DBCLUSTER:-"postgresql://${REGUSER}@localhost:7095"}
-SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@localhost:7095"}
+DBCLUSTER=${DBCLUSTER:-"postgresql://${REGUSER}@localhost:7099"}
+SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@localhost:7099"}
 MAHOUTHOME=${MAHOUTHOME:-${HOME}/PostgreSQL/mahout}
 TARGETDIR=${TARGETDIR:-"install-target"}
 MAHOUTLOGDIR=${MAHOUTLOG:-"/tmp/mahout-tests"}

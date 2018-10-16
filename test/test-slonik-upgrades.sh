@@ -12,6 +12,12 @@ PROJECTNAME=mhslonytest
 TARGETMHDIR=install-target/${PROJECTNAME}
 MAHOUT=${MAHOUTHOME}/mahout
 SLONYCLUSTER=mhslonytest
+SLONYMAINSET=10
+SLONYTEMPSET=3141
+SLONYIGNORETABLES='()'
+SLONYIGNORESEQUENCES='()'
+SUPERUSER=${SUPERUSER:-"postgres"}
+SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@localhost:7099"}
 
 if [ -d ${MAHOUTLOGDIR} ]; then
     MAHOUTLOG=${MAHOUTLOGDIR}/mahout.log
@@ -76,7 +82,7 @@ for node in origin rep2 rep3 rep4 rep5 rep6; do
 
 done
 
-slonydir=`mktemp -d /tmp/mahout-slony-dir.XXXXXXXXXXXXX`
+slonydir=$TARGETMHDIR/slony
 mkdir -p ${slonydir}/pid
 
 slonikpreamble=${slonydir}/preamble.slonik
@@ -147,17 +153,17 @@ done
 initset=$slonydir/initset.slonik
 echo "# Initialize nodes
 include <${slonikpreamble}>;
-create set (id=1, origin=1, comment='${SLONYCLUSTER} Tables and Sequences');
-set add table (id=1, set id=1, origin=1, fully qualified name='nullschema.wee_table', comment='basic table');
-subscribe set (id=1, provider=1, receiver=2, forward=yes);
+create set (id=${SLONYMAINSET}, origin=1, comment='${SLONYCLUSTER} Tables and Sequences');
+set add table (id=0, set id=${SLONYMAINSET}, origin=1, fully qualified name='nullschema.wee_table', comment='basic table');
+subscribe set (id=${SLONYMAINSET}, provider=1, receiver=2, forward=yes);
 wait for event (origin=all, confirmed=all, wait on=1);
-subscribe set (id=1, provider=1, receiver=3, forward=yes);
+subscribe set (id=${SLONYMAINSET}, provider=1, receiver=3, forward=yes);
 wait for event (origin=all, confirmed=all, wait on=1);
-subscribe set (id=1, provider=3, receiver=4, forward=yes);
+subscribe set (id=${SLONYMAINSET}, provider=3, receiver=4, forward=yes);
 wait for event (origin=all, confirmed=all, wait on=1);
-subscribe set (id=1, provider=4, receiver=5, forward=yes);
+subscribe set (id=${SLONYMAINSET}, provider=4, receiver=5, forward=yes);
 wait for event (origin=all, confirmed=all, wait on=1);
-subscribe set (id=1, provider=4, receiver=6, forward=yes);
+subscribe set (id=${SLONYMAINSET}, provider=4, receiver=6, forward=yes);
 wait for event (origin=all, confirmed=all, wait on=1);
 " > $initset
 
@@ -177,13 +183,6 @@ for i in ${devdb} ${comparisondb}; do
     psql -d ${clusterdb} \
          -c "create database ${i};"
 done
-
-glog user.notice "Set up initial schema in Dev DB"
-psql -d ${devuri} -c "
-  create table if not exists t1 (id serial primary key, name text not null unique, created_on timestamptz default now());
-  create schema if not exists subschema;
-  create table if not exists subschema.t2 (id serial primary key, name text not null unique, created_on timestamptz default now());
-"
 
 glog user.notice "Purge away ./${PROJECTNAME}"
 if [ -d ./${PROJECTNAME} ]; then
@@ -221,7 +220,7 @@ else
     exit 1
 fi
 
-glog user.notice "Do mahout init to capture that base schema"
+glog user.notice "Do mahout init to capture the empty base schema"
 
 MAHOUTSCHEMA=MaHoutSchema PGCMPHOME=${PGCMPHOME} MAINDATABASE=${devuri} SUPERUSERACCESS=${SUPERCLUSTER}/${devdb} COMPARISONDATABASE=${compuri} ${MAHOUT} init ${PROJECTNAME}
 
@@ -291,14 +290,21 @@ mkdir ${TARGETDIR}
 cp -r ${PROJECTNAME} ${TARGETDIR}
 
 function fix_install_uri () {
-# Drop alternate configuration into installation Mahout config
+    # Drop alternate configuration into installation Mahout config
+    local installuri
+    installuri=${DBCLUSTER}/origin
     glog user.notice "fix up install instance to use ${installuri} rather than the URI provided in the build"
     egrep -v MAINDATABASE ${TARGETMHDIR}/mahout.conf | \
     egrep -v SUPERUSERACCESS ${TARGETMHDIR}/mahout.conf \
 	> ${TARGETMHDIR}/mahout.conf.keep
     echo "
 MAINDATABASE=${installuri}
-SUPERUSERACCESS=${SUPERCLUSTER}/${installdb}
+SUPERUSERACCESS=${SUPERCLUSTER}/origin
+SLONYCLUSTER=${SLONYCLUSTER}
+SLONYMAINSET=${SLONYMAINSET}
+SLONYIGNORESEQUENCES=${SLONYIGNORESEQUENCES}
+SLONYIGNORETABLES=${SLONYIGNORETABLES}
+MAHOUTIGNORESCHEMAS=\"('_${SLONYCLUSTER}', 'nullschema')\"
 
 " >> ${TARGETMHDIR}/mahout.conf.keep
     cp ${TARGETMHDIR}/mahout.conf.keep ${TARGETMHDIR}/mahout.conf
@@ -320,6 +326,9 @@ ddl 1.1/stuff.sql
 
 mkdir ${PROJECTNAME}/1.1
 echo "
+   create table if not exists t1 (id serial primary key, name text not null unique, created_on timestamptz default now());
+   create schema if not exists subschema;
+   create table if not exists subschema.t2 (id serial primary key, name text not null unique, created_on timestamptz default now());
    alter table t1 add column deleted_on timestamptz;
 " > ${PROJECTNAME}/1.1/stuff.sql
 
@@ -410,13 +419,10 @@ fix_install_uri
 
 glog user.notice "Completed upgrade to v1.4"
 
-### Create a database and use "mahout attach" to attach a database to
-### it
 
-psql -d ${clusterdb} \
-     -c "drop database if exists ${proddb};"
-psql -d ${clusterdb} \
-     -c "create database ${i} template ${devdb};"
+### Now, we start using the Slony cluster...
+
+# Do an install of base against the replica cluster...
 
 # It's a clone of the dev schema, so we need to drop the MAHOUT schema
 psql -d ${produri} \
@@ -431,3 +437,10 @@ SUPERUSERACCESS=${SUPERCLUSTER}/${proddb}
 " >> ${TARGETMHDIR}/mahout.conf-production
 (cd ${TARGETMHDIR}; 
  MAHOUTCONFIG=mahout.conf-production ${MAHOUT} attach 1.4)
+
+
+# Finally, done, kill off slon processes
+for pidfile in ${slonydir}/pid/node[1-6].pid; do
+    pid=`cat $pidfile`
+    glog user.notice "Shutting down slon $pidfile - $pid"
+done

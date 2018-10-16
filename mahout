@@ -34,12 +34,12 @@ mahout commands:
     List objects that are being changed by the upgrade
  mahout build [BUILDNAME] [FORMAT]
     Generates a build in specified format, one of (tar, tar.gz, tar.bz)
- mahout slony-attach
+ mahout slony-attach [VERSION]
     Initializes the present non-mahoutized database schemas for Slony cluster
     to the specified version.  Fail if any of the schemas does not match
     that version.
  mahout slonik
-    Prepares a slonik script to install replication against the latest/specified version
+    Prepares a slonik script to upgrade replicated cluster to the latest/specified version
  validate_control
     Runs validation tests on the mahout.control file
 "
@@ -258,7 +258,7 @@ function split_versions () {
 	sed "s/[ \t]*$//" | \
 	sed "s/[\t]/ /g" | \
 	sed "s/  / /g"           > ${sanswhitecomments}
-						  
+    
     cversion="InvalidUntilVersionEstablished"
 
     while read line
@@ -1297,6 +1297,7 @@ function mahout_history () {
 
     # Clean up afterwards
     rm -rf ${depfodder} ${dependencies} ${versionorder} ${versioncontent}
+}
 
 function mahout_attach () {
     local PRODVERSION=${PARM1}
@@ -1431,6 +1432,8 @@ function mahout_build () {
     summary build
 }
 
+
+
 function mahout_attach () {
     local PRODVERSION=${PARM1}
     local CMPDATA
@@ -1498,6 +1501,113 @@ function mahout_attach () {
 	    exit 2
 	    ;;
     esac
+
+    # But if there are no differences, then we need to add mahout
+    # schema as is added by mahout install/init, and indicate
+    # that it was marked as OK with the specified version
+    local SETUPQ=`mktemp /tmp/mahout-attach-setup.XXXXXXXXXXXXXX`
+    mahout_initialize_schema > ${SETUPQ}
+    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
+    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', now(), clock_timestamp());
+  commit;" >> ${SETUPQ}
+
+    psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
+    retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Unable to setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
+	exit 1
+    else
+	glog user.notice "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
+	rm -f ${SETUPQ}
+    fi
+    glog user.notice "mahout attach completed for version [${PRODVERSION}] in database [${MAINDATABASE}]"
+    summary attach
+}
+
+function mahout_slony_attach () {
+    local PRODVERSION=${PARM1}
+    local CMPDATA
+    # check that we're in a Mahout directory
+    local INMAHOUT
+    local PGCMPOUTPUT
+
+    INMAHOUT=`in_mahout_home`
+    if [[ ${INMAHOUT} != 0 ]]; then
+	glog user.error "attach: not in mahout directory - ${INMAHOUT}"
+	exit 1
+    fi
+    
+    # acquire configuration from mahout.conf
+    read_mahout_config
+    glog user.notice "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
+
+    # Verify that the version PRODVERSION matches against a valid
+    # version, e.g. - one where there is a dump found in .mahout-data
+    CMPDATA=${PWD}/.mahout-data/${PRODVERSION}.pgcmp
+    if [[ -e ${CMPDATA} ]]; then
+	glog user.notice "Found comparison data for version - [${CMPDATA}]"
+    else
+	glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
+	exit 1
+    fi
+
+    ## Need to check ALL the nodes for this stuff...
+    ## Grab the list of nodes involved with the set SLONYMAINSET, providers AND subscribers
+    NODEQUERY="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET}
+           union select sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
+    SLONYNODES=`psql -d $MAINDATABASE -qAt -c "${NODEQUERY}" | sort -n`
+    nodeprobs=false
+    for slnode in `echo $SLONYNODES`; do
+	# ask for connection path for that node
+	SLCPATHQ="select pa_conninfo from \"_${SLONYCLUSTER}.sl_path where pa_server=${slnode} limit 1;"
+	NODEDBCONN=`psql -d $MAINDATABASE -qAt -c "${SLCPATHQ}"`
+	glog user.notice "Checking node [${slnode}] for Mahout hygiene at ${NODEDBCONN}"
+
+	# Verify that the database does NOT have Mahout installed, e.g. -
+	# no Mahout schema
+	query="select count(1) from pg_catalog.pg_namespace where nspname = '${MAHOUTSCHEMA}';"
+	scount=`psql -d "${NODEDBCONN}" -c "${query}" -qAt`
+	if [[ ${scount} != 0 ]]; then
+	    glog user.error "attach: database ${NODEDBCONN} already has ${MAHOUTSCHEMA} schema - apparently already mahout-ized"
+	    nodeprobs=true
+	fi
+	
+	# run pgcmp to see differences versus the specified version
+	# any unexpected differences lead to failing the install
+	LABEL="node-${slnode}-${PRODVERSION}"
+	CAPTUREFILE=${PWD}/.mahout-temp/attach-node-${slnode}-${PRODVERSION}.pgcmp
+	dump_current_schema "${LABEL}" ${CAPTUREFILE}
+
+	# Now, run pgcmp against the two schemas:
+	PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
+	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+	rc=$?
+	case ${rc} in
+	    0)
+		glog user.notice "pgcmp found exact match"
+		rm -rf ${PGCMPWORK}
+		;;
+	    2)
+		glog user.error "pgcmp failed to run properly - see ${PGCMPWORK}/perform-comparison.log"
+		nodeprobs=true
+		;;
+	    3)
+		glog user.error "pgcmp found differences inadequately explained - see ${PGCMPWORK}/perform-comparison.log"
+		nodeprobs=true
+		;;
+	esac
+    done
+    case $nodeprobs in
+	false)
+	    glog user.notice "No problems found when checking replication nodes against Mahout install"
+	    ;;
+	true)
+	    glog user.error "Problems found when checking replication nodes against Mahout install"
+	    ;;
+	*)
+	    glog user.error "invalid nodeprobs - [${nodeprobs}] - should be true/false"
+    esac
+
 
     # But if there are no differences, then we need to add mahout
     # schema as is added by mahout install/init, and indicate
@@ -1681,48 +1791,49 @@ function mahout_slonik () {
 }
 
 case $SUBCOMMAND in
-   init)
-       mahout_init ${PARM1}
-       ;;
-   capture)
-       mahout_capture
-       ;;
-   attach)
-       mahout_attach ${PARM1}
-       ;;
-   check)
-       mahout_check
-       ;;
-   install)
-       mahout_install
-       ;;
-   upgrade)
-       mahout_upgrade
-       ;;
-   diff)
-       mahout_diff
-       ;;
-   slonik)
-       mahout_slonik
-       ;;
-   slony_attach)
-       mahout_slony_attach
-       ;;
-   history)
-       mahout_history
-       ;;
-   changes)
-       mahout_changes
-       ;;
-   validate_control)
-       validate_control
-       ;;
-   build)
-       mahout_build ${PARM1} ${PARM2}
-       ;;
-   *)
-       echo "Invalid subcommand - [${COMMAND}]"
-       help
-       exit 2
-       ;;
+    init)
+	mahout_init ${PARM1}
+	;;
+    capture)
+	mahout_capture
+	;;
+    attach)
+	mahout_attach ${PARM1}
+	;;
+    check)
+	mahout_check
+	;;
+    install)
+	mahout_install
+	;;
+    upgrade)
+	mahout_upgrade
+	;;
+    diff)
+	mahout_diff
+	;;
+    slonik)
+	mahout_slonik
+	;;
+    slony_attach)
+	mahout_slony_attach
+	;;
+    history)
+	mahout_history
+	;;
+    changes)
+	mahout_changes
+	;;
+    validate_control)
+	validate_control
+	;;
+    build)
+	mahout_build ${PARM1} ${PARM2}
+	;;
+    *)
+	echo "Invalid subcommand - [${COMMAND}]"
+	help
+	exit 2
+	;;
 esac
+
