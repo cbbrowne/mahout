@@ -1795,8 +1795,37 @@ function mahout_slonik () {
     local versioncontent=`mktemp -d /tmp/mahout-slonik-version-content.XXXXXXXXXXXX`
     local slonikscript="${PWD}/.mahout-builds/slonik-from-${DBVERSION}.slonik"
 
-    # Find the shape of the cluster...
-    # SLONYCLUSTERNAME
+    # Find the shape of the cluster, because we need to SUBSCRIBE SET for each relevant node
+    # SLONYCLUSTER
+    CLSHAPEQ="select sub_provider, sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
+    SHAPEFILE=$PWD/.mahout-builds/slony-node-orderings-src.txt
+    NODEORDERFILE=$PWD/.mahout-builds/slony-node-orderings.txt
+    psql -d "${MAINDATABASE}" -qAt --field-separator=" " -c "${CLSHAPEQ}" > $SHAPEFILE
+    glog user.info "Generated $SHAPEFILE with list of subscriptions for replication set $SLONYMAINSET"
+    tsort < $SHAPEFILE > $NODEORDERFILE
+    glog user.info "Generated $NODEORDERFILE with order of subscriptions for replication set $SLONYMAINSET"
+
+    # What all do we need?
+    #   - figure out origin node ID - ORIGINNODEID
+    #   - slony preamble, already gotten earlier
+    #      cluster name=$SLONYCLUSTER;
+    #        plus per-node
+    #      node $nodenum admin conninfo='something'
+    #   - set drop table
+    #     drop the table from the main set
+    #   - run the DDL via EXECUTE SCRIPT
+    #   - create set
+    #      create set (id=$SLONYTEMPSET, origin=$ORIGINNODEID, comment='Mahout set for upgrade from $DBVERSION');
+    #   - set add table
+    #     set add table (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
+    #     for each table in the new version that wasn't in the previous    
+    #   - set add sequence
+    #     set add sequence (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
+    #     for each sequence in the new version that wasn't in the previous    
+    #   - subscribe set for all but the origin, based on order in NODEORDERFILE
+    #   - wait for event (origin=all, confirmed=all, wait on=$ORIGINNODE);
+    #   - finally, MERGE SET
+
     # SLONYNODES
     # SLONYSUBSCRIPTIONS
 

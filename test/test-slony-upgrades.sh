@@ -51,6 +51,7 @@ function glog () {
 	user.info)
 	    ccode='\e[37m'
 	    CONFIG=$((${CONFIG} + 1))
+	    ;;
 	user.notice)
 	    ccode='\e[32m'
 	    NOTICES=$((${NOTICES} + 1))
@@ -390,7 +391,6 @@ glog user.notice "do upgrade of the install instance to run v1.2"
 cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
 
-exit
 (cd ${TARGETMHDIR}; ${MAHOUT} slonik)
 
 echo "
