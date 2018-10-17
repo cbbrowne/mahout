@@ -1711,12 +1711,48 @@ function mahout_slonik () {
 	exit 1
     fi
 
+    # Is the main database the origin?
+    QMAINDBORIGIN="select set_origin=\"_${SLONYCLUSTER}\".getlocalnodeid('_${SLONYCLUSTER}') from \"_${SLONYCLUSTER}\".sl_set where set_id = ${SLONYMAINSET};"
+    ISDBORIGIN=`psql -d $MAINDATABASE -qAt -c "${QMAINDBORIGIN}"`
+    rc=$?
+    case ${rc} in
+	0)
+	    case $ISDBORIGIN in
+		t)
+		    glog user.info "Main database [${MAINDATABASE}] is origin for replication set [${SLONYMAINSET}], OK"
+		    ;;
+		f)
+		    glog user.error "Main database [${MAINDATABASE}] is not origin for replication set [${SLONYMAINSET}]"
+		    exit 1
+		    ;;
+		*)
+		    glog user.error "Main database [${MAINDATABASE}] is not origin for replication set [${SLONYMAINSET}] - query result [${ISDBORIGIN}]"
+		    exit 1
+		    ;;
+	    esac
+	    ;;
+	1)
+	    glog user.error "unable to ascertain if [${MAINDATABASE}] is origin for replication set [${SLONYMAINSET}]"
+	    exit 1
+	    ;;
+	2)
+	    glog user.error "unable to connect to node [${MAINDATABASE}]"
+	    nodeprobs=true
+	    exit 1
+	    ;;
+	3)
+	    glog user.error "unable to query node for whether it is origin [${MAINDATABASE}]"
+	    nodeprobs=true
+	    exit 1
+	    ;;
+    esac
+
+    nodeprobs=false
     ## Need to check ALL the nodes for this stuff...
     ## Grab the list of nodes involved with the set SLONYMAINSET, providers AND subscribers
     NODEQUERY="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET}
            union select sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
     SLONYNODES=`psql -d $MAINDATABASE -qAt -c "${NODEQUERY}" | sort -n`
-    nodeprobs=false
     for slnode in `echo $SLONYNODES`; do
 	# ask for connection path for that node
 	SLCPATHQ="select pa_conninfo from \"_${SLONYCLUSTER}\".sl_path where pa_server=${slnode} limit 1;"
