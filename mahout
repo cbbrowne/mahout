@@ -342,11 +342,11 @@ function validate_control () {
 	local dropwhitespace=`mktemp /tmp/mahout-ctl-check.sanswhitespace.XXXXXXXXXXX`
 	local badlines=`mktemp /tmp/mahout-ctl-check.badlines.XXXXXXXXXXX`
 	local psqlscripts=`mktemp /tmp/mahout-ctl-check.psql.XXXXXXXXXXX`
-	local shellscripts=`mktemp /tmp/mahout-ctl-check.shellscripts.XXXXXXXXXXX`
+	local unixcommands=`mktemp /tmp/mahout-ctl-check.unixcommands.XXXXXXXXXXX`
 	cut -d \# -f 1 < ${CTL} > ${dropcomments}
 	sed "s/^[ \t]*//" < ${dropcomments} | sed "s/[ \t]*$//" > ${dropwhitespace}
 	
-	egrep -n -v "^(version|psql|common tests|psqltest|requires|superuser|shell)[ ]*" ${dropwhitespace} | egrep -v "^[0-9]+:$" > ${badlines}
+	egrep -n -v "^(version|ddl|dml|common tests|psqltest|requires|superuser|unix)[ ]*" ${dropwhitespace} | egrep -v "^[0-9]+:$" > ${badlines}
 	NUMBAD=`cat ${badlines} | wc -l`
 	if [[ ${NUMBAD} -gt 0 ]]; then
 	    glog user.error "Found ${NUMBAD} ill-formatted lines"
@@ -354,7 +354,7 @@ function validate_control () {
 	    exit 1
 	fi
 	# check that psql lines refer to files that actually exist
-        egrep -n "^psql " ${dropwhitespace} > ${psqlscripts}
+        egrep -n "^ddl " ${dropwhitespace} > ${psqlscripts}
 	local line
 	while read line
 	do
@@ -367,28 +367,28 @@ function validate_control () {
 	    fi
 	done < ${psqlscripts}
 
-	# check that shell lines refer to files that actually exist
-        egrep -n "^shell " ${dropwhitespace} > ${shellscripts}
-	local shelldata
-	local shellfile
-	local shellparm
+	# check that unix lines refer to files that actually exist
+        egrep -n "^unix " ${dropwhitespace} > ${unixcommands}
+	local unixdata
+	local unixfile
+	local unixparm
 	local line
 	while read line
 	do
 	    lineno=`echo ${line} | cut -d : -f 1`
-	    shelldata=`echo ${line} | sed 's/^[0-9]*: *shell[ \t]*//'`
-	    shellfile=`echo $shelldata | cut -d " " -f 1`
-	    shellparm=`echo $shelldata | cut -d " " -f 2`
-	    if [ -e ${shellfile} ]; then
-		if [ -x ${shellfile} ]; then
-		    glog user.notice "shell file ${shellfile} on line ${lineno} exists, executable"
+	    unixdata=`echo ${line} | sed 's/^[0-9]*: *unix[ \t]*//'`
+	    unixfile=`echo $unixdata | cut -d " " -f 1`
+	    unixparm=`echo $unixdata | cut -d " " -f 2`
+	    if [ -e ${unixfile} ]; then
+		if [ -x ${unixfile} ]; then
+		    glog user.notice "unix file ${unixfile} on line ${lineno} exists, executable"
 		else
-		    glog user.error "shell file ${shellfile} on line ${lineno} exists, NOT executable"
+		    glog user.error "unix file ${unixfile} on line ${lineno} exists, NOT executable"
 		fi
 	    else
-		glog user.error "shell file ${shellfile} on line ${lineno} does not exist"
+		glog user.error "unix file ${unixfile} on line ${lineno} does not exist"
 	    fi
-	done < ${shellscripts}
+	done < ${unixcommands}
 	
 	# check that all requires point to valid versions
 	local vfile=`mktemp /tmp/mahout-ctl-check.versions.XXXXXXXXXXX`
@@ -414,8 +414,11 @@ function validate_control () {
 	local dependencies=`mktemp /tmp/mahout-ctl-check-dependencies.XXXXXXXXXXXX`
 	local versionorder=`mktemp /tmp/mahout-ctl-check-versionorder.XXXXXXXXXXXX`
 	calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
+
+	# check that there isn't a mix of DDL and DML in the same version
 	
-	rm -f ${shortened} ${dropcomments} ${dropwhitespace} ${badlines} ${psqlscripts} ${badlines} ${vfile} ${rfile} ${shellscripts}  ${versionorder} ${depfodder}
+	
+	rm -f ${shortened} ${dropcomments} ${dropwhitespace} ${badlines} ${psqlscripts} ${badlines} ${vfile} ${rfile} ${unixcommands}  ${versionorder} ${depfodder}
     else
 	glog user.error "Control file [${CTL}] not found"
 	exit 1
@@ -633,12 +636,12 @@ function mahout_capture () {
 		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
   		        glog user.debug "no action apropos for requires line"
 		    fi
-		    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
+		    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
 			local sqlscript=`echo ${line} | cut -d " " -f 2`
-			glog user.notice "apply SQL Script ${sqlscript}"
+			glog user.notice "apply DDL Script ${sqlscript}"
 			md5sum=`md5sum < ${sqlscript}`
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-			action_start $propversion capture "psql script" ${sqlscript} "${md5sum}"
+			action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
 			echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
 			cat ${sqlscript} >> ${TEMPSQLFILE}
 			rc=$?
@@ -647,11 +650,11 @@ function mahout_capture () {
 				glog user.debug "constructed ${sqlscript} into ${TEMPSQLFILE} ok"
 			        ;;
 			    1)
-				glog user.error "SQL script ${sqlscript} not found"
+				glog user.error "DDL script ${sqlscript} not found"
 				exit 2
 				;;
 			    *)
-				glog user.error "Error adding in SQL script ${sqlscript} - rc=[${rc}]"
+				glog user.error "Error adding in DDL script ${sqlscript} - rc=[${rc}]"
 				exit 3
 				;;
 			esac				
@@ -662,11 +665,11 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			psql -d ${MAINDATABASE} -f ${TEMPSQLFILE} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
-			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-			    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" f
+			    glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
+			    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
-			    action_end ${propversion} "capture" "psql script" "${sqlscript}" "${md5sum}" t
+			    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" t
 			    rm ${TEMPSQLFILE}
 			fi
 		    fi
@@ -693,14 +696,14 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			    rm ${TEMPSQLFILE}
 			fi
 		    fi
-		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
-			local shellscript=`echo ${line} | cut -d " " -f 2`
-			local shellarg=`echo ${line} | cut -d " " -f 3`
-			cat ${shellscript} | md5sum > ${shellscript}.md5sum
+		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
+			local unixcommand=`echo ${line} | cut -d " " -f 2`
+			local unixarg=`echo ${line} | cut -d " " -f 3`
+			cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
 
-			action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"			
-			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ./${shellscript}.${propversion}.log 2>&1
-			action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
+			action_start ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}"			
+			MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ./${unixcommand}.${propversion}.log 2>&1
+			action_end ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}" t
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
 			local testscript=`echo ${line} | cut -d " " -f 2`
@@ -859,7 +862,7 @@ function mahout_check () {
 	sed "s/[ \t]*$//" | \
 	sed "s/[\t]/ /g" | \
 	sed "s/  / /g"           > ${sanswhitecomments}
-    egrep -n "^(psql|superuser|shell|psqltest|common tests)[ \t]*" ${sanswhitecomments} > ${allscripts}
+    egrep -n "^(ddl|superuser|unix|psqltest|common tests)[ \t]*" ${sanswhitecomments} > ${allscripts}
     while read line
     do
 	lineno=`echo ${line} | cut -d : -f 1`
@@ -975,20 +978,20 @@ function mahout_upgrade () {
 		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
   		        echo "no action apropos for requires line"
 		    fi
-		    if [[ $(echo ${line} | egrep -c "^psql ") -eq 1 ]]; then
+		    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
 			local sqlscript=`echo ${line} | cut -d " " -f 2`
-			glog user.notice "apply SQL Script ${sqlscript}"
+			glog user.notice "apply DDL Script ${sqlscript}"
 			md5sum=`md5sum < ${sqlscript}`
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-			action_start $propversion upgrade "psql script" ${sqlscript} "${md5sum}"
+			action_start $propversion upgrade "DDL script" ${sqlscript} "${md5sum}"
 			psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
-			    glog user.error "psql script ${sqlscript} failed against database [${MDB}]"
-			    action_end ${propversion} "upgrade" "psql script" "${sqlscript}" "${md5sum}" f
+			    glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
+			    action_end ${propversion} "upgrade" "DDL script" "${sqlscript}" "${md5sum}" f
 			    exit 1
 			else
-			    action_end ${propversion} "upgrade" "psql script" "${sqlscript}" "${md5sum}" t
+			    action_end ${propversion} "upgrade" "DDL script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
@@ -1007,14 +1010,14 @@ function mahout_upgrade () {
 			    action_end ${propversion} upgrade "psql script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
-		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
-			local shellscript=`echo ${line} | cut -d " " -f 2`
-			local shellarg=`echo ${line} | cut -d " " -f 3`
-			cat ${shellscript} | md5sum > ${shellscript}.md5sum
+		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
+			local unixcommand=`echo ${line} | cut -d " " -f 2`
+			local unixarg=`echo ${line} | cut -d " " -f 3`
+			cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
 
-			action_start ${propversion} "upgrade" "shell script" "${shellscript}" "${md5sum}"			
-			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ${shellscript}.${propversion}.log 2>&1
-			action_end ${propversion} "upgrade" "shell script" "${shellscript}" "${md5sum}" t
+			action_start ${propversion} "upgrade" "unix script" "${unixcommand}" "${md5sum}"			
+			MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ${unixcommand}.${propversion}.log 2>&1
+			action_end ${propversion} "upgrade" "unix script" "${unixcommand}" "${md5sum}" t
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
 			glog user.debug "no action apropos for psqltest on upgrade"
@@ -1173,14 +1176,14 @@ function mahout_install () {
 		    action_end ${propversion} capture "psql script" "${sqlscript}" "${md5sum}" t
 		fi
 	    fi
-	    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
-		local shellscript=`echo ${line} | cut -d " " -f 2`
-		local shellarg=`echo ${line} | cut -d " " -f 3`
-		cat ${shellscript} | md5sum > ${shellscript}.md5sum
-		glog user.info "script - ${MAINDATABASE} loading shell script ${shellscript}, logging to ${shellscript}.${propversion}.log"
-		action_start ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}"
-		MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ./${shellscript}.${propversion}.log 2>&1
-		action_end ${propversion} "capture" "shell script" "${shellscript}" "${md5sum}" t
+	    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
+		local unixcommand=`echo ${line} | cut -d " " -f 2`
+		local unixarg=`echo ${line} | cut -d " " -f 3`
+		cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
+		glog user.info "script - ${MAINDATABASE} loading unix script ${unixcommand}, logging to ${unixcommand}.${propversion}.log"
+		action_start ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}"
+		MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ./${unixcommand}.${propversion}.log 2>&1
+		action_end ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}" t
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
 		glog user.notice "psqltest does not run at install time"
@@ -1682,7 +1685,7 @@ function mahout_slony_attach () {
 ###         - determine the tables to be dropped, generating SET DROP TABLE
 ###         - determine the sequences to be dropped, generating SET DROP SEQUENCE
 ###         - something up with ddl vs psql vs ddl-autocommit vs superuser
-###       - for shell:
+###       - for unix:
 ###         - run against origin node
 
 function mahout_slonik () {
@@ -1881,8 +1884,10 @@ cluster name=${SLONYCLUSTER};
 	echo "node ${node} admin conninfo='${conninfo}';" >> $SLONIKPREAMBLE
     done
 
-    exit
+    # The following takes place inside the per-version loop...
     #   - set drop table
+    #     We just did a pgcmp run, so can use that database...
+    #        psql -d ${COMPARISONDATABASE} -c get_list_of_tables
     #     drop the table from the main set
     #   - run the DDL via EXECUTE SCRIPT
     #   - create set
@@ -1958,14 +1963,14 @@ cluster name=${SLONYCLUSTER};
 			    action_end slonik "psql script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
-		    if [[ $(echo ${line} | egrep -c "^shell ") -eq 1 ]]; then
-			local shellscript=`echo ${line} | cut -d " " -f 2`
-			local shellarg=`echo ${line} | cut -d " " -f 3`
-			cat ${shellscript} | md5sum > ${shellscript}.md5sum
+		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
+			local unixcommand=`echo ${line} | cut -d " " -f 2`
+			local unixarg=`echo ${line} | cut -d " " -f 3`
+			cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
 
-			action_start ${propversion} "slonik" "shell script" "${shellscript}" "${md5sum}"			
-			MAINDATABASE=${MAINDATABASE} ./${shellscript} ${!shellarg} > ${shellscript}.${propversion}.log 2>&1
-			action_end ${propversion} "slonik" "shell script" "${shellscript}" "${md5sum}" t
+			action_start ${propversion} "slonik" "unix script" "${unixcommand}" "${md5sum}"			
+			MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ${unixcommand}.${propversion}.log 2>&1
+			action_end ${propversion} "slonik" "unix script" "${unixcommand}" "${md5sum}" t
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
 			glog user.debug "no action apropos for psqltest on slonik"

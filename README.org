@@ -133,7 +133,7 @@ expect the tool to be used:
      have not been altered.
    - It captures ~.pgcmp~ files for /all/ versions that are
      not captured
-   - It captures lists of locked objects for each ~psql~ and ~superuser~ script, thus:
+   - It captures lists of locked objects for each ~ddl~ and ~superuser~ script, thus:
      | schema | object name | Lock Acquired       |
      |--------+-------------+---------------------|
      | public | t1          | AccessExclusiveLock |
@@ -195,9 +195,10 @@ expect the tool to be used:
  - ~mahout slonik~ :: This generates ~slonik~ scripts for use with
       Slony to perform the specified upgrade, stopping at specified
       version, if requested.
-   - It only works if the version upgrade(s) /only/ consist of ~ddl~,
-     ~dml~, ~ddl-autocommit~, and ~psqltest~ requests; it will /fail/
-     if there is a ~shell~ step.
+   - It only works if the version upgrade(s) are either /only/ consist
+     of ~ddl~, ~ddl-autocommit~, and ~psqltest~ requests, or /only/ of
+     ~dml~ and ~unix~ requests; it will /fail/ if there are
+     combinations of DDL and DML together
    - It generates a slonik script with the following:
      - a pre-amble reference to allow set IDs and connection paths to be customized by an administrator
      - an EXECUTE SCRIPT request for each ~psql~ script, to apply DDL to the cluster
@@ -217,16 +218,16 @@ expect the tool to be used:
   setting up a directory structure to group schema scripts together by
   version would be wise.
 
-  - Configuration control file: ~mahout.conf~
-
-    This file contains metadata about the databases to be managed.
+  - Configuration control file: ~mahout.conf~ ::     This file
+       contains metadata about the databases to be managed.
 
     Alternatively, ~MAHOUTCONFIG~ may be set to indicate an
     alternative location to find the configuration expected in
     ~mahout.conf~.
 
-  - Schema control: ~mahout.control~
-    This file indicates the order in which directories/files should be visited when applying schema changes.
+  - Schema control: ~mahout.control~ ::  This file indicates the order
+       in which directories/files should be processed when applying
+       schema changes.
 
   - If no ~mahout.control~ file is provided, at a given directory
     level, that will be treated as an error that would cause ~mahout~
@@ -261,6 +262,190 @@ CONFIG_23y=/tmp/redwood-2.3y-currencies.txt
 CONFIG_2226=/tmp/registrar-guid-map-2.2.26.csv
 CONFIG_22=/tmp/registrar-guid-map-2.2.csv
 #+END_EXAMPLE
+
+** Contents of mahout.control
+
+   The ~mahout.control~ file contains information indicating which
+   changes are associated with each version of the database schema.
+   It does not contain any database configuration, as that will vary
+   between development, QA, and production environments; that is
+   controlled in the ~mahout.conf~ file described previously.
+   Instead, it contains sections indicating /schema/ information and
+   how it ties to versions of that schema.
+
+   - Version dependency data :: The ~version~ and ~requires~
+        directives identify, for each version, the label for that
+        schema version, and what schema version is the prerequisite
+        that must be installed first.
+
+	The ~Base~ version is special, being the initial "Base"
+        version that has no prerequisite.
+
+   - Schema application directives :: For each file processed, there
+        is a line to indicate how it is to be processed: 
+     - ddl :: Indicating that the file contains SQL DDL and should be
+              processed using ~psql~ against MAINDATABASE.  It is an
+              error to perform DML in a ~ddl~ script, and /mahout/ may
+              check for this and report an error if data other than
+              schema is modified.
+     - ddl-autocommit :: Indicating that the file contains SQL DDL and
+                         should be processed using ~psql~ against
+                         MAINDATABASE.  Rather than the whole SQL
+                         script being run as a single transaction,
+                         this runs in autocommit mode, as is needed to
+                         create indexes concurrently.
+     - dml :: Indicating that the file contains SQL DML and should be
+              processed using ~psql~ against MAINDATABASE.  It is an
+              error to perform DDL in a ~dml~ script, and /mahout/ may
+              check for this and report an error if schema is
+              modified.
+     - unix {parameter} :: Indicating that the file should be run as a
+          UNIX command, with the values in ~mahout.conf~ loaded into
+          the environment, and with data for ~{parameter}~ passed as
+          the singular argument to the command.  It is strongly urged
+          that ~unix~ only be used to handle DML changes, that is, to
+          change the data /inside/ tables, as opposed to doing DML
+          (table structure alterations).  ~unix~ commands are not
+          amenable to capturing ~.locks-acquired~ data.
+
+	  The ~parameter~ value indicates a single parameter to be
+          captured in the ~mahout.conf~ file and passed to the command
+          to indicate its configuration.  If complex configuration is
+          required, then the single parameter may point to a
+          configuration file containing as much configuration as
+          necessary.
+
+   - Testing directives :: SQL scripts may be used to perform tests to
+        verify that the schema satisfies computable requirements.
+     - common tests :: This defines a single section of the
+                       ~mahout.conf~ file to group together tests that
+                       are to be commonly applied across all versions
+                       of the schema (perhaps with per-version
+                       restrictions for particular tests).  That way,
+                       validations intended to apply organizational
+                       policies are automatically applied to every new
+                       version deployed, by default.
+
+		       Alternatively, tests may be attached to a
+                       particular schema version.
+
+		       If a particular test is only applicable to one
+                       version of the schema, then it should be
+                       associated with that version.  If a test
+                       represents common policy, then it should be
+                       associated via ~common tests~.
+     - psqltest :: This indicates a test that is to be run against
+                   every version of the schema.
+     - psqltest from [Version] :: This indicates a test to be run
+          against every version of the schema beginning with a
+          particular version.  In effect, that means that there is a
+          new requirement that will not be applied against "legacy"
+          schema versions.
+     - psqltest to [Version] :: This indicates a test that is to be
+          run against versions of the schema beginning with ~Base~,
+          and ending with the specified version.  In effect, this
+          indicates that there was some requirement that becomes
+          relaxed after the final indicated version.
+     - psqltest from [FirstVersion] to [SecondVersion] :: This
+          indicates a test that begins applicability with the first
+          version label indicated, and which ceases to be applicable
+          after the second version label.
+
+*** Example of mahout.control
+
+#+BEGIN_EXAMPLE
+  # Note that Base is actually version 1.5; that was where we started...
+  version Base
+    ddl Base/base-schema.sql
+
+  common tests
+    psqltest from 2.2 to 2.2.26 test/parent-test-1.sql
+    psqltest from 2.2.26 test/parent-test-2.sql
+    psqltest from 2.3y test/pf-currency.sql
+    psqltest from 2.2 test/gf.sql
+    psqltest from 2.6 test/bigint-checks.sql
+    psqltest from 2.4 test/message-queuing.sql
+    psqltest from 2.3z test/ropq.sql
+    psqltest test/all-tables-commented.sql
+    psqltest test/all-functions-commented.sql
+    psqltest test/table-names-unique.sql
+
+  version 2.0
+    requires Base
+    superuser 2.0/drop_roles.sql
+    ddl 2.0/public.sql
+    ddl 2.0/app_private.sql
+    ddl 2.0/app.sql
+    ddl 2.0/devtools.sql
+    psqltest 2.0/new-feature-in-2.0.sql
+
+  version 2.1
+    requires 2.0
+    ddl 2.1/public.sql
+    ddl 2.1/app.sql
+    ddl 2.1/drop_deprecateds.sql
+    ddl 2.1/devtools.sql
+
+  version 2.2
+    requires 2.1
+    ddl 2.2/public.sql
+    ddl 2.2/app_private.sql
+    ddl 2.2/adjustment_criteria.sql
+    ddl 2.2/migrate_ids.sql CLIENT_ID_FILE=${CONFIG_22}
+
+  version 2.2.26
+    requires 2.2
+    ddl 2.2.26/public.sql
+    ddl 2.2.26/migrate-ids.sql CLIENT_ID_FILE=${CONFIG_2226}
+
+  version 2.3x
+    requires 2.2.26
+    ddl 2.3x/public.sql
+    ddl 2.3x/app.sql
+    ddl 2.3x/app_private.sql
+
+  version 2.3y
+    requires 2.3x
+    ddl 2.3y/public.sql
+    ddl 2.3y/app_private.sql
+    ddl 2.3y/app.sql
+    ddl 2.3y/devtools.sql
+    unix 2.3y/migration-currency.sh PF_CURRENCY_FILE=${CONFIG_23y}
+    unix 2.3y/migrate-pf-currency.sql
+
+  version 2.3z
+    requires 2.3y
+    ddl 2.3z/public.sql
+    ddl 2.3z/app_private.sql
+    ddl 2.3z/app.sql
+    ddl 2.3z/migration-script.sql
+
+  version 2.4
+    requires 2.3z
+    ddl 2.4/app.sql
+
+  version 2.5
+    requires 2.4
+    ddl 2.5/public.sql
+    ddl 2.5/app_private.sql
+    ddl 2.5/app.sql
+
+  version 2.6
+    requires 2.5
+    unix 2.6/prepare-rapp-schema-upgrade.sh ${CONFIG_26}
+
+  version 2.7
+    requires 2.6
+    ddl 2.7/globals.sql
+    ddl 2.7/public.sql
+    ddl 2.7/app_private.sql
+    ddl 2.7/app.sql
+
+  version 2.8
+    requires 2.7
+    ddl 2.8/public.sql
+#+END_EXAMPLE
+
 *** Slony Specific Parameters
     If running Mahout against a Slony cluster, additional configuration is required:
     - SLONYCLUSTER :: This has the name of the Slony Cluster, which is
