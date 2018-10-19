@@ -262,7 +262,7 @@ function split_versions () {
     local sanswhitecomments
     local cversion
 
-    sanswhitecomments=`mktemp /tmp/mahout-split-versions.XXXXXXXXXXXXX`
+    sanswhitecomments=$PWD/.mahout-temp/mahout-split-versions
     cut -d \# -f 1 < mahout.control | \
 	sed "s/^[ \t]*//" | \
 	sed "s/[ \t]*$//" | \
@@ -302,8 +302,8 @@ function calculate_dependencies () {
     local versionorder=$3
     glog user.debug "calculate_dependencies (${depfodder},${dependencies},${versionorder})"
     
-    local dropcomments=`mktemp /tmp/mahout-version-ordering.sanscomments.XXXXXXXXXXX`
-    local dropwhitespace=`mktemp /tmp/mahout-version-ordering.sanswhitespace.XXXXXXXXXXX`
+    local dropcomments=$PWD/.mahout-temp/mahout-version-ordering.sanscomments
+    local dropwhitespace=$PWD/.mahout-temp/mahout-version-ordering.sanswhitespace
     cut -d \# -f 1 < mahout.control > ${dropcomments}
     sed "s/^[ \t]*//" < ${dropcomments} | sed "s/[ \t]*$//" > ${dropwhitespace}
     
@@ -338,11 +338,11 @@ function validate_control () {
     glog user.info "validate_control: validating control file [${CTL}]"
     if [ -e ${CTL} ]; then
 	glog user.info "Found [${CTL}]"
-	local dropcomments=`mktemp /tmp/mahout-ctl-check.sanscomments.XXXXXXXXXXX`
-	local dropwhitespace=`mktemp /tmp/mahout-ctl-check.sanswhitespace.XXXXXXXXXXX`
-	local badlines=`mktemp /tmp/mahout-ctl-check.badlines.XXXXXXXXXXX`
-	local psqlscripts=`mktemp /tmp/mahout-ctl-check.psql.XXXXXXXXXXX`
-	local unixcommands=`mktemp /tmp/mahout-ctl-check.unixcommands.XXXXXXXXXXX`
+	local dropcomments=$PWD/.mahout-temp/mahout-ctl-check.sanscomments
+	local dropwhitespace=$PWD/.mahout-temp/mahout-ctl-check.sanswhitespace
+	local badlines=$PWD/.mahout-temp/mahout-ctl-check.badlines
+	local psqlscripts=$PWD/.mahout-temp/mahout-ctl-check.psql
+	local unixcommands=$PWD/.mahout-temp/mahout-ctl-check.unixcommands
 	cut -d \# -f 1 < ${CTL} > ${dropcomments}
 	sed "s/^[ \t]*//" < ${dropcomments} | sed "s/[ \t]*$//" | sed "s/  / /g" > ${dropwhitespace}
 	
@@ -391,8 +391,8 @@ function validate_control () {
 	done < ${unixcommands}
 	
 	# check that all requires point to valid versions
-	local vfile=`mktemp /tmp/mahout-ctl-check.versions.XXXXXXXXXXX`
-	local rfile=`mktemp /tmp/mahout-ctl-check.requires.XXXXXXXXXXX`
+	local vfile=$PWD/.mahout-temp/mahout-ctl-check.versions
+	local rfile=$PWD/.mahout-temp/mahout-ctl-check.requires
 	egrep -n "^version" ${dropwhitespace} > ${vfile}
 	egrep -n "^requires" ${dropwhitespace} > ${rfile}
 	
@@ -410,16 +410,15 @@ function validate_control () {
 	
 	# check that there are no loops
 	# Assemble dependencies, run through tsort
-	local depfodder=`mktemp /tmp/mahout-ctl-check-dependency-fodder.XXXXXXXXXXXX`
-	local dependencies=`mktemp /tmp/mahout-ctl-check-dependencies.XXXXXXXXXXXX`
-	local versionorder=`mktemp /tmp/mahout-ctl-check-versionorder.XXXXXXXXXXXX`
+	local depfodder=$PWD/.mahout-temp/mahout-ctl-check-dependency-fodder
+	local dependencies=$PWD/.mahout-temp/mahout-ctl-check-dependencies
+	local versionorder=$PWD/.mahout-temp/mahout-ctl-check-versionorder
 	calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
 
 	# check that there isn't a mix of DDL/DML/DDL-parallel/unix in the same version
 	glog user.info "Check for mix of actions within a version"
 
 	cversion=""
-	latestdirective=""
 	lineno=0
 	gotddl=0
 	gotdml=0
@@ -649,16 +648,16 @@ function mahout_capture () {
 	exit 1
     fi
     
-    local depfodder=`mktemp /tmp/mahout-capture-dependency-fodder.XXXXXXXXXXXX`
-    local dependencies=`mktemp /tmp/mahout-capture-dependencies.XXXXXXXXXXXX`
-    local versionorder=`mktemp /tmp/mahout-capture-version-order.XXXXXXXXXXXX`
-    local versioncontent=`mktemp -d /tmp/mahout-capture-version-content.XXXXXXXXXXXX`
+    local depfodder=$PWD/.mahout-temp/mahout-capture-dependency-fodder
+    local dependencies=$PWD/.mahout-temp/mahout-capture-dependencies
+    local versionorder=$PWD/.mahout-temp/mahout-capture-version-order
+    local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-capture-version-content.XXXXXXXXXXXX`
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
     glog user.debug "calced dependencies"
 
     split_versions ${versioncontent}
 
-    local TEMPSQLFILE=`mktemp /tmp/mahout-capture-sql-application.XXXXXXXXXXX`
+    local TEMPSQLFILE=$PWD/.mahout-temp/mahout-capture-sql-application
     versionswanted=false
     for propversion in `cat ${versionorder}`; do
 	if [[ $propversion == ${DBVERSION} ]]; then
@@ -871,8 +870,8 @@ function mahout_check () {
     
     # Also check md5 checksums on /all/ scripts
     #    - just a new loop...
-    local sanswhitecomments=`mktemp /tmp/mahout-split-cleanwhitespace.XXXXXXXXXXXXX`
-    local allscripts=`mktemp /tmp/mahout-check-all-scripts.XXXXXXXXXXXX`
+    local sanswhitecomments=$PWD/.mahout-temp/mahout-split-cleanwhitespace
+    local allscripts=$PWD/.mahout-temp/mahout-check-all-scripts
     local lineno
     local action
     local filename
@@ -909,7 +908,7 @@ function mahout_check () {
     #    - Needs to have a config parm for PGCEXPLANATIONS
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
 
-    PGCMPWORK=`mktemp -d /tmp/mahout-check-pgcmp-work.XXXXXXXXXXX`
+    PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-check-pgcmp-work.XXXXXXXXXXX`
     PGBINDIR=${PGBINDIR} PGCLABEL1=TempCurrent PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
@@ -951,7 +950,7 @@ function mahout_upgrade () {
     dump_current_schema CurrentSchema ${CURRENTCMP} ${MAINDATABASE}
 
     glog user.info "run pgcmp to examine schema for differences against version ${DBVERSION}"
-    PGCMPWORK=`mktemp -d /tmp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
+    PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
     PGBINDIR=${PGBINDIR} PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
@@ -969,10 +968,10 @@ function mahout_upgrade () {
     esac
 
     # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
-    local depfodder=`mktemp /tmp/mahout-upgrade-dependency-fodder.XXXXXXXXXXXX`
-    local dependencies=`mktemp /tmp/mahout-upgrade-dependencies.XXXXXXXXXXXX`
-    local versionorder=`mktemp /tmp/mahout-upgrade-version-order.XXXXXXXXXXXX`
-    local versioncontent=`mktemp -d /tmp/mahout-upgrade-version-content.XXXXXXXXXXXX`
+    local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-upgrade-version-content.XXXXXXXXXXXX`
+    local depfodder=$PWD/.mahout-temp/mahout-upgrade-dependency-fodder
+    local dependencies=$PWD/.mahout-temp/mahout-upgrade-dependencies
+    local versionorder=$PWD/.mahout-temp/mahout-upgrade-version-order
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
     glog user.notice "calced dependencies"
     split_versions ${versioncontent}
@@ -1074,7 +1073,7 @@ function mahout_install () {
 	    exit 1
 	    ;;
 	0)
-	    local SETUPQ=`mktemp /tmp/mahout-install-setup.XXXXXXXXXXXXXX`
+	    local SETUPQ=$PWD/.mahout-temp/mahout-install-setup
 	    mahout_initialize_schema > ${SETUPQ}
 	    ;;
     esac
@@ -1092,10 +1091,10 @@ function mahout_install () {
 	rm -f ${SETUPQ}
     fi
     
-    local depfodder=`mktemp /tmp/mahout-install-dependency-fodder.XXXXXXXXXXXX`
-    local dependencies=`mktemp /tmp/mahout-install-dependencies.XXXXXXXXXXXX`
-    local versionorder=`mktemp /tmp/mahout-install-versionorder.XXXXXXXXXXXX`
-    local versioncontent=`mktemp -d /tmp/mahout-install-version-content.XXXXXXXXXXXX`
+    local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-install-version-content.XXXXXXXXXXXX`
+    local depfodder=$PWD/.mahout-temp/mahout-install-dependency-fodder
+    local dependencies=$PWD/.mahout-temp/mahout-install-dependencies
+    local versionorder=$PWD/.mahout-temp/mahout-install-versionorder
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
 
     split_versions ${versioncontent}
@@ -1218,7 +1217,7 @@ function mahout_diff () {
     dump_current_schema CurrentSchema ${CURRENTCMP} ${MAINDATABASE}
 
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
-    PGCMPWORK=`mktemp -d /tmp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
+    PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
     PGBINDIR=${PGBINDIR} PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
@@ -1268,10 +1267,10 @@ function mahout_history () {
     echo ""
 
     # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
-    local depfodder=`mktemp /tmp/mahout-history-dependency-fodder.XXXXXXXXXXXX`
-    local dependencies=`mktemp /tmp/mahout-history-dependencies.XXXXXXXXXXXX`
-    local versionorder=`mktemp /tmp/mahout-history-version-order.XXXXXXXXXXXX`
-    local versioncontent=`mktemp -d /tmp/mahout-history-version-content.XXXXXXXXXXXX`
+    local depfodder=$PWD/.mahout-temp/mahout-history-dependency-fodder
+    local dependencies=$PWD/.mahout-temp/mahout-history-dependencies
+    local versionorder=$PWD/.mahout-temp/mahout-history-version-order
+    local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-history-version-content.XXXXXXXXXXXX`
 
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
     split_versions ${versioncontent}
@@ -1345,7 +1344,7 @@ function mahout_attach () {
     dump_current_schema "${LABEL}" ${CAPTUREFILE} ${MAINDATABASE}
 
     # Now, run pgcmp against the two schemas:
-    PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
+    PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
     PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
@@ -1366,7 +1365,7 @@ function mahout_attach () {
     # But if there are no differences, then we need to add mahout
     # schema as is added by mahout install/init, and indicate
     # that it was marked as OK with the specified version
-    local SETUPQ=`mktemp /tmp/mahout-attach-setup.XXXXXXXXXXXXXX`
+    local SETUPQ=$PWD/.mahout-temp/mahout-attach-setup
     mahout_initialize_schema > ${SETUPQ}
     echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
     insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', now(), clock_timestamp());
@@ -1394,7 +1393,7 @@ function mahout_changes () {
 function mahout_build () {
     local BLABEL=$1
     local BTYPE=$2
-    local BHOME=`mktemp -d /tmp/mahout-build-path.XXXXXXXXXXXXXXX`
+    local BHOME=`mktemp -d $PWD/.mahout-temp/mahout-build-path.XXXXXXXXXXXXXXX`
     mkdir ${BHOME}/${BLABEL}
     glog user.info "mahout build generated build directory ${BHOME}/${BLABEL}"
     tar cf - . | (cd ${BHOME}/${BLABEL}; tar xf -)
@@ -1483,7 +1482,7 @@ function mahout_attach () {
     dump_current_schema "${LABEL}" ${CAPTUREFILE} ${MAINDATABASE}
 
     # Now, run pgcmp against the two schemas:
-    PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
+    PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
     PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
@@ -1504,7 +1503,7 @@ function mahout_attach () {
     # But if there are no differences, then we need to add mahout
     # schema as is added by mahout install/init, and indicate
     # that it was marked as OK with the specified version
-    local SETUPQ=`mktemp /tmp/mahout-attach-setup.XXXXXXXXXXXXXX`
+    local SETUPQ=$PWD/.mahout-temp/mahout-attach-setup
     mahout_initialize_schema > ${SETUPQ}
     echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
     insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', now(), clock_timestamp());
@@ -1577,7 +1576,7 @@ function mahout_slony_attach () {
 	dump_current_schema "${LABEL}" ${CAPTUREFILE} ${NODEDBCONN}
 
 	# Now, run pgcmp against the two schemas:
-	PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
+	PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
 	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
 	rc=$?
 	case ${rc} in
@@ -1612,7 +1611,7 @@ function mahout_slony_attach () {
     #  schema to all the nodes
 
 
-    local SETUPQ=`mktemp /tmp/mahout-attach-setup.XXXXXXXXXXXXXX`
+    local SETUPQ=$PWD/.mahout-temp/mahout-attach-setup
     mahout_initialize_schema > ${SETUPQ}
     echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'slony attach mahout', '${PRODVERSION}', 'slony_attach', 'mahout', 'initialized', 't');
     insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', now(), clock_timestamp());
@@ -1665,14 +1664,27 @@ function mahout_slony_attach () {
 ###   - for each version being upgraded
 ###     - loop through actions
 ###       - For DDL:
-###         - get ddl requests, drop into Slonik script
+###         - determine the tables to be dropped, put SET DROP TABLE into slonik script
+###            We just did a pgcmp run, so can use that database...
+###            psql -d ${COMPARISONDATABASE} -c get_list_of_tables
+###         - determine the sequences to be dropped, put SET DROP SEQUENCE into slonik script
+###         - put EXECUTE SCRIPT for each ddl script
+###         - CREATE SET for the new set
+###           create set (id=$SLONYTEMPSET, origin=$ORIGINNODEID, comment='Mahout set for upgrade from $DBVERSION');
 ###         - determine the tables to be added, generating SET ADD TABLE
+###      #     set add table (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
 ###         - determine the sequences to be added, generating SET ADD SEQUENCE
-###         - determine the tables to be dropped, generating SET DROP TABLE
-###         - determine the sequences to be dropped, generating SET DROP SEQUENCE
-###         - something up with ddl vs ddl-parallel vs dml
+###      #     set add sequence (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
+###         - series of SUBSCRIBE SET, order based on NODEORDERFILE
+###     #   - wait for event (origin=all, confirmed=all, wait on=$ORIGINNODE);
+###         - MERGE SET 
+###       - for dml:
+###         - run against origin node
 ###       - for unix:
 ###         - run against origin node
+###       - for ddl-parallel:
+###         - run against each node
+###         - with some degree of parallelism...
 
 function mahout_slonik () {
     # starts similarly to mahout_upgrade, checking hygiene
@@ -1782,7 +1794,8 @@ function mahout_slonik () {
 	dump_current_schema "${LABEL}" ${CAPTUREFILE} ${NODEDBCONN}
 
 	# And run pgcmp against the two schemas
-	PGCMPWORK=`mktemp -d /tmp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
+	PGCMPWORK=$PWD/.mahout-temp/mahout-attach-pgcmp-work
+	mkdir -p $PWCMPWORK
 	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
 	rc=$?
 	case ${rc} in
@@ -1814,17 +1827,17 @@ function mahout_slonik () {
     esac
 
     # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
-    local depfodder=`mktemp /tmp/mahout-slonik-dependency-fodder.XXXXXXXXXXXX`
-    local dependencies=`mktemp /tmp/mahout-slonik-dependencies.XXXXXXXXXXXX`
-    local versionorder=`mktemp /tmp/mahout-slonik-version-order.XXXXXXXXXXXX`
-    local versioncontent=`mktemp -d /tmp/mahout-slonik-version-content.XXXXXXXXXXXX`
-    local slonikscript="${PWD}/.mahout-builds/slonik-from-${DBVERSION}.slonik"
+    local depfodder=$PWD/.mahout-temp/mahout-slonik-dependency-fodder
+    local dependencies=$PWD/.mahout-temp/mahout-slonik-dependencies
+    local versionorder=$PWD/.mahout-temp/mahout-slonik-version-order
+    local versioncontent=$PWD/.mahout-temp/mahout-slonik-version-content
+    local slonikscript="${PWD}/.mahout-temp/slonik-from-${DBVERSION}.slonik"
 
     # Find the shape of the cluster, because we need to SUBSCRIBE SET for each relevant node
     # SLONYCLUSTER
     CLSHAPEQ="select sub_provider, sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
-    SHAPEFILE=$PWD/.mahout-builds/slony-node-orderings-src.txt
-    NODEORDERFILE=$PWD/.mahout-builds/slony-node-orderings.txt
+    SHAPEFILE=$PWD/.mahout-temp/slony-node-orderings-src.txt
+    NODEORDERFILE=$PWD/.mahout-temp/slony-node-orderings.txt
     psql -d "${MAINDATABASE}" -qAt --field-separator=" " -c "${CLSHAPEQ}" > $SHAPEFILE
     glog user.info "Generated $SHAPEFILE with list of subscriptions for replication set $SLONYMAINSET"
     tsort < $SHAPEFILE > $NODEORDERFILE
@@ -1870,33 +1883,11 @@ cluster name=${SLONYCLUSTER};
 	echo "node ${node} admin conninfo='${conninfo}';" >> $SLONIKPREAMBLE
     done
 
-    # The following takes place inside the per-version loop...
-    #   - set drop table
-    #     We just did a pgcmp run, so can use that database...
-    #        psql -d ${COMPARISONDATABASE} -c get_list_of_tables
-    #     drop the table from the main set
-    #   - run the DDL via EXECUTE SCRIPT
-    #   - create set
-    #      create set (id=$SLONYTEMPSET, origin=$ORIGINNODEID, comment='Mahout set for upgrade from $DBVERSION');
-    #   - set add table
-    #     set add table (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
-    #     for each table in the new version that wasn't in the previous    
-    #   - set add sequence
-    #     set add sequence (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
-    #     for each sequence in the new version that wasn't in the previous    
-    #   - subscribe set for all but the origin, based on order in NODEORDERFILE
-    #   - wait for event (origin=all, confirmed=all, wait on=$ORIGINNODE);
-    #   - finally, MERGE SET
-
-    # SLONYNODES
-    # SLONYSUBSCRIPTIONS
-
-    # Need to add SET DROP TABLE requests to slonik scripts before tables are dropped
-
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
     glog user.notice "calced dependencies"
     split_versions ${versioncontent}
     versionswanted=false
+exit    
     for propversion in `cat ${versionorder}`; do
 	if [[ $propversion == ${DBVERSION} ]]; then
 	    # We have reached the point at which versions should get captured
@@ -1923,6 +1914,25 @@ cluster name=${SLONYCLUSTER};
 			md5sum=`md5sum < ${sqlscript}`
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 			action_start $propversion slonik "DDL script" ${sqlscript} "${md5sum}"
+
+			# set up DB with the pgcmp data to get tables to be added/dropped
+exit			
+###         - determine the tables to be dropped, put SET DROP TABLE into slonik script
+###            We just did a pgcmp run, so can use that database...
+###            psql -d ${COMPARISONDATABASE} -c get_list_of_tables
+###         - determine the sequences to be dropped, put SET DROP SEQUENCE into slonik script
+###         - put EXECUTE SCRIPT for each ddl script
+###         - CREATE SET for the new set
+###           create set (id=$SLONYTEMPSET, origin=$ORIGINNODEID, comment='Mahout set for upgrade from $DBVERSION');
+###         - determine the tables to be added, generating SET ADD TABLE
+###      #     set add table (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
+###         - determine the sequences to be added, generating SET ADD SEQUENCE
+###      #     set add sequence (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
+###         - series of SUBSCRIBE SET, order based on NODEORDERFILE
+###     #   - wait for event (origin=all, confirmed=all, wait on=$ORIGINNODE);
+			
+			
+			
 			psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 			retcode=$?
 			if [ $retcode -ne 0 ]; then
