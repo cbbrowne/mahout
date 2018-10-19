@@ -133,7 +133,7 @@ expect the tool to be used:
      have not been altered.
    - It captures ~.pgcmp~ files for /all/ versions that are
      not captured
-   - It captures lists of locked objects for each ~ddl~ and ~superuser~ script, thus:
+   - It captures lists of locked objects for each ~ddl~ script, thus:
      | schema | object name | Lock Acquired       |
      |--------+-------------+---------------------|
      | public | t1          | AccessExclusiveLock |
@@ -282,21 +282,25 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
         version that has no prerequisite.
 
    - Schema application directives :: For each file processed, there
-        is a line to indicate how it is to be processed: 
+        is a line to indicate how it is to be processed.  These four
+        processing types are /mutually exclusive/ for any given
+        version; you may have as many of each in a version upgrade as
+        desired, but to switch to a different behaviour, you need
+        another version.
      - ddl :: Indicating that the file contains SQL DDL and should be
               processed using ~psql~ against MAINDATABASE.  It is an
-              error to perform DML in a ~ddl~ script, and /mahout/ may
-              check for this and report an error if data other than
-              schema is modified.
-     - ddl-autocommit :: Indicating that the file contains SQL DDL and
-                         should be processed using ~psql~ against
-                         MAINDATABASE.  Rather than the whole SQL
-                         script being run as a single transaction,
-                         this runs in autocommit mode, as is needed to
-                         create indexes concurrently.
+              error to perform DML in a ~ddl~ script, and ~mahout~
+              /may/ check for this and report an error if data other
+              than schema is modified.
+     - ddl-parallel :: Indicating that the file contains SQL DDL that
+                       should be processed using ~psql~ in parallel.
+                       Rather than the entire set of DDL script being
+                       run as a single transaction, this runs in a
+                       separate transaction, as is needed to create
+                       indexes concurrently.
      - dml :: Indicating that the file contains SQL DML and should be
               processed using ~psql~ against MAINDATABASE.  It is an
-              error to perform DDL in a ~dml~ script, and /mahout/ may
+              error to perform DDL in a ~dml~ script, and ~mahout~ /may/
               check for this and report an error if schema is
               modified.
      - unix {parameter} :: Indicating that the file should be run as a

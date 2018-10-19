@@ -212,7 +212,7 @@ function mahout_init () {
 	echo "# Initialized mahout.control" > ${MAHOUTCTL}
 	echo "# add sections after this to indicate versions" >> ${MAHOUTCTL}
 	echo "version Base"  >> ${MAHOUTCTL}
-	echo "superuser Base/base-schema.sql"  >> ${MAHOUTCTL}
+	echo "ddl Base/base-schema.sql"  >> ${MAHOUTCTL}
     fi
     case $PROBLEMS in
 	0)
@@ -344,9 +344,9 @@ function validate_control () {
 	local psqlscripts=`mktemp /tmp/mahout-ctl-check.psql.XXXXXXXXXXX`
 	local unixcommands=`mktemp /tmp/mahout-ctl-check.unixcommands.XXXXXXXXXXX`
 	cut -d \# -f 1 < ${CTL} > ${dropcomments}
-	sed "s/^[ \t]*//" < ${dropcomments} | sed "s/[ \t]*$//" > ${dropwhitespace}
+	sed "s/^[ \t]*//" < ${dropcomments} | sed "s/[ \t]*$//" | sed "s/  / /g" > ${dropwhitespace}
 	
-	egrep -n -v "^(version|ddl|dml|common tests|psqltest|requires|superuser|unix)[ ]*" ${dropwhitespace} | egrep -v "^[0-9]+:$" > ${badlines}
+	egrep -n -v "^(version|ddl|ddl-parallel|dml|common tests|psqltest|requires|unix)[ ]*" ${dropwhitespace} | egrep -v "^[0-9]+:$" > ${badlines}
 	NUMBAD=`cat ${badlines} | wc -l`
 	if [[ ${NUMBAD} -gt 0 ]]; then
 	    glog user.error "Found ${NUMBAD} ill-formatted lines"
@@ -359,11 +359,11 @@ function validate_control () {
 	while read line
 	do
 	    lineno=`echo ${line} | cut -d : -f 1`
-	    pfilename=`echo ${line} | sed 's/^[0-9]*: *psql[ \t]*//'`
+	    pfilename=`echo ${line} | sed 's/^[0-9]*: *ddl[ \t]*//'`
 	    if [ -e ${pfilename} ]; then
-		glog user.notice "psql file ${pfilename} on line ${lineno} exists"
+		glog user.notice "DDL file ${pfilename} on line ${lineno} exists"
 	    else
-		glog user.error "psql file ${pfilename} on line ${lineno} does not exist"
+		glog user.error "DDL file ${pfilename} on line ${lineno} does not exist"
 	    fi
 	done < ${psqlscripts}
 
@@ -415,8 +415,51 @@ function validate_control () {
 	local versionorder=`mktemp /tmp/mahout-ctl-check-versionorder.XXXXXXXXXXXX`
 	calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
 
-	# check that there isn't a mix of DDL and DML in the same version
-	
+	# check that there isn't a mix of DDL/DML/DDL-parallel/unix in the same version
+	glog user.info "Check for mix of actions within a version"
+
+	cversion=""
+	latestdirective=""
+	lineno=0
+	gotddl=0
+	gotdml=0
+	gotddlp=0
+	gotunix=0
+	while read line
+	do
+	    lineno=$(( $lineno + 1 ))
+	    directive=`echo $line | cut -d ' ' -f 1`
+	    case $directive in
+		version|common)
+		    gottotal=$(( $gotddl + $gotdml + $gotddlp + $gotunix ))
+		    if [ $gottotal -gt 1 ]; then
+			glog user.error "version $cversion has multiple processing types"
+		    fi
+		    gotddl=0
+		    gotdml=0
+		    gotddlp=0
+		    gotunix=0
+		    cversion=`echo $line | cut -d ' ' -f 2`
+		    ;;
+		ddl)
+		    gotddl=1
+		    ;;
+		dml)
+		    gotdml=1
+		    ;;
+		ddl-parallel)
+		    gotddlp=1
+		    ;;
+		unix)
+		    gotunix=1
+		    ;;
+		esac
+	done < ${dropwhitespace}
+	# And check the end...
+	gottotal=$(( $gotddl + $gotdml + $gotddlp + $gotunix ))
+	if [ $gottotal -gt 1 ]; then
+	    glog user.error "version $cversion has multiple processing types"
+	fi
 	
 	rm -f ${shortened} ${dropcomments} ${dropwhitespace} ${badlines} ${psqlscripts} ${badlines} ${vfile} ${rfile} ${unixcommands}  ${versionorder} ${depfodder}
     else
@@ -673,29 +716,6 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			    rm ${TEMPSQLFILE}
 			fi
 		    fi
-		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
-			local sqlscript=`echo ${line} | cut -d " " -f 2`
-			echo "apply SQL Superuser Script ${sqlscript}"
-			md5sum=`md5sum < ${sqlscript}`
-			echo ${md5sum} > ${sqlscript}.md5sum
-			action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
-			echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
-			cat ${sqlscript} >> ${TEMPSQLFILE}
-			echo "create temp table t_ending_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';
-create temp table t_locks_acquired as select nspname, relname, mode from t_ending_locks e where not exists (select 1 from t_starting_locks s where s.nspname = e.nspname and s.relname = e.relname and s.mode = e.mode);
-" >> ${TEMPSQLFILE}
-			echo "\COPY (select nspname, relname, mode from t_locks_acquired) to '${sqlscript}.${propversion}.locks-acquired';" >> ${TEMPSQLFILE}
-			psql -d ${SUPERUSERACCESS} -f ${TEMPSQLFILE} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-			retcode=$?
-			if [ $retcode -ne 0 ]; then
-			    glog user.error "superuser script ${sqlscript} failed against database [${MAINDATABASE}]"
-			    action_end ${propversion} capture "psql superuser script" "${sqlscript}" "${md5sum}" f
-			    exit 1
-			else
-			    action_end ${propversion} capture "psql superuser script" "${sqlscript}" "${md5sum}" t
-			    rm ${TEMPSQLFILE}
-			fi
-		    fi
 		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
 			local unixcommand=`echo ${line} | cut -d " " -f 2`
 			local unixarg=`echo ${line} | cut -d " " -f 3`
@@ -715,7 +735,6 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			retcode=$?
 			if [ $retcode -eq 0 ]; then
 			    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" t
-			    
 			else
 			    glog user.error "test script ${testscript} failed against database [${MAINDATABASE}]"
 			    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" f			
@@ -862,7 +881,7 @@ function mahout_check () {
 	sed "s/[ \t]*$//" | \
 	sed "s/[\t]/ /g" | \
 	sed "s/  / /g"           > ${sanswhitecomments}
-    egrep -n "^(ddl|superuser|unix|psqltest|common tests)[ \t]*" ${sanswhitecomments} > ${allscripts}
+    egrep -n "^(ddl|ddl-parallel|dml|unix|psqltest|common tests)[ \t]*" ${sanswhitecomments} > ${allscripts}
     while read line
     do
 	lineno=`echo ${line} | cut -d : -f 1`
@@ -994,22 +1013,6 @@ function mahout_upgrade () {
 			    action_end ${propversion} "upgrade" "DDL script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
-		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
-			local sqlscript=`echo ${line} | cut -d " " -f 2`
-			echo "apply SQL Superuser Script ${sqlscript}"
-			md5sum=`md5sum < ${sqlscript}`
-			echo ${md5sum} > ${sqlscript}.md5sum
-			action_start ${propversion} "upgrade" "psql superuser script" "${sqlscript}" "${md5sum}"
-			psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-			retcode=$?
-			if [ $retcode -ne 0 ]; then
-			    glog user.error "superuser script ${sqlscript} failed against database [${SUPERUSERACCESS}]"
-			    action_end ${propversion} upgrade "psql script" "${sqlscript}" "${md5sum}" f
-			    exit 1
-			else
-			    action_end ${propversion} upgrade "psql script" "${sqlscript}" "${md5sum}" t
-			fi
-		    fi
 		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
 			local unixcommand=`echo ${line} | cut -d " " -f 2`
 			local unixarg=`echo ${line} | cut -d " " -f 3`
@@ -1127,20 +1130,20 @@ function mahout_install () {
 		    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" t
 		fi
 	    fi
-	    if [[ $(echo ${line} | egrep -c "^ddl-autocommit ") -eq 1 ]]; then
+	    if [[ $(echo ${line} | egrep -c "^ddl-parallel ") -eq 1 ]]; then
 		local sqlscript=`echo ${line} | cut -d " " -f 2`
-		glog user.notice "apply DDL-AUTOCOMMIT Script ${sqlscript}"
+		glog user.notice "apply DDL parallel script  ${sqlscript}"
 		md5sum=`md5sum < ${sqlscript}`
 		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-		action_start $propversion capture "DDL-AUTOCOMMIT script" ${sqlscript} "${md5sum}"
+		action_start $propversion capture "DDL parallel script" ${sqlscript} "${md5sum}"
 		psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} > ${sqlscript}.${propversion}.log 2>&1
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
-		    glog user.error "DDL-AUTOCOMMIT script ${sqlscript} failed against database [${MDB}]"
-		    action_end ${propversion} "capture" "DDL-AUTOCOMMIT script" "${sqlscript}" "${md5sum}" f
+		    glog user.error "DDL parallel script ${sqlscript} failed against database [${MDB}]"
+		    action_end ${propversion} "capture" "DDL parallel script" "${sqlscript}" "${md5sum}" f
 		    exit 1
 		else
-		    action_end ${propversion} "capture" "DDL-AUTOCOMMIT script" "${sqlscript}" "${md5sum}" t
+		    action_end ${propversion} "capture" "DDL parallel script" "${sqlscript}" "${md5sum}" t
 		fi
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
@@ -1157,23 +1160,6 @@ function mahout_install () {
 		    exit 1
 		else
 		    action_end ${propversion} "capture" "DML script" "${sqlscript}" "${md5sum}" t
-		fi
-	    fi
-	    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
-		local sqlscript=`echo ${line} | cut -d " " -f 2`
-		echo "apply SQL Superuser Script ${sqlscript}"
-		md5sum=`md5sum < ${sqlscript}`
-		echo ${md5sum} > ${sqlscript}.md5sum
-		action_start ${propversion} "capture" "psql superuser script" "${sqlscript}" "${md5sum}"
-		glog user.info "Superuser - ${SUPERUSERACCESS} loading script ${sqlscript}, logging to ${sqlscript}.${propversion}.log"
-		psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-		retcode=$?
-		if [ $retcode -ne 0 ]; then
-		    glog user.error "superuser script ${sqlscript} failed against database [${SUPERUSERACCESS}]"
-		    action_end ${propversion} capture "psql script" "${sqlscript}" "${md5sum}" f
-		    exit 1
-		else
-		    action_end ${propversion} capture "psql script" "${sqlscript}" "${md5sum}" t
 		fi
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
@@ -1684,7 +1670,7 @@ function mahout_slony_attach () {
 ###         - determine the sequences to be added, generating SET ADD SEQUENCE
 ###         - determine the tables to be dropped, generating SET DROP TABLE
 ###         - determine the sequences to be dropped, generating SET DROP SEQUENCE
-###         - something up with ddl vs psql vs ddl-autocommit vs superuser
+###         - something up with ddl vs ddl-parallel vs dml
 ###       - for unix:
 ###         - run against origin node
 
@@ -1945,22 +1931,6 @@ cluster name=${SLONYCLUSTER};
 			    exit 1
 			else
 			    action_end ${propversion} "slonik" "DDL script" "${sqlscript}" "${md5sum}" t
-			fi
-		    fi
-		    if [[ $(echo ${line} | egrep -c "^superuser ") -eq 1 ]]; then
-			local sqlscript=`echo ${line} | cut -d " " -f 2`
-			echo "apply SQL Superuser Script ${sqlscript}"
-			md5sum=`md5sum < ${sqlscript}`
-			echo ${md5sum} > ${sqlscript}.md5sum
-			action_start ${propversion} "slonik" "psql superuser script" "${sqlscript}" "${md5sum}"
-			psql -d ${SUPERUSERACCESS} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-			retcode=$?
-			if [ $retcode -ne 0 ]; then
-			    glog user.error "superuser script ${sqlscript} failed against database [${MDB}]"
-			    action_end slonik "psql script" "${sqlscript}" "${md5sum}" f
-			    exit 1
-			else
-			    action_end slonik "psql script" "${sqlscript}" "${md5sum}" t
 			fi
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
