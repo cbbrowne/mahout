@@ -1933,13 +1933,12 @@ cluster name=${SLONYCLUSTER};
 			glog user.notice "Dump to $DEADTABLESFILE"
 			DEADTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-dropped.slonik
 			DROPTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-dropped.sql
-			echo > $DROPTABLESSQL <<EOF
-
+			echo "
 create temp table dropped_tables (table_name text primary key);
 \COPY dropped_tables (table_name) from '${DEADTABLESFILE}';
 analyze dropped_tables;
 \COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from dropped_tables where table_name = quote_ident(tab_nspname) || '.' quote_ident(tab_relname))) to '${DROPTABLESSLONIK}';
-EOF
+" > $DROPTABLESSQL
 
 			psql -d ${COMPARISONDATABASE} -c "${DEADTABLESQL}"
 			psql -d ${MAINDATABASE} -f "${DROPTABLESQL}"
@@ -1950,15 +1949,17 @@ EOF
 			glog user.notice "Dump to $DEADSEQUENCESFILE"
 			DEADSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-dropped.slonik
 			DROPSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-dropped.sql
-			echo > $DROPSEQUENCESSQL <<EOF
+			echo "
 create temp table t_dropped_tables (table_name text primary key);
 \COPY t_dropped_tables (table_name primary key) from '${DEADSEQUENCESFILE}';
 analyze dropped_tables;
 \COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from t_dropped_tables where table_name = quote_ident(tab_nspname) || '.' quote_ident(tab_relname))) to '${DROPSEQUENCESSLONIK}';
-EOF
+" > $DROPSEQUENCESSQL
 
 			psql -d ${COMPARISONDATABASE} -c "${DEADSEQUENCESQL}"
+			glog user.notice "Found dead sequences"
 			psql -d ${MAINDATABASE} -f "${DROPSEQUENCESSQL}"
+			glog user.notice "Generated slonik to dead sequences"
 
 			NEWTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-added.txt
 			TABLESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'table' and difference_type='missing in 1st DB') to '${NEWTABLESFILE}';"
@@ -1966,19 +1967,19 @@ EOF
 
 			NEWTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-added.slonik
 			NEWTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-added.sql
-			echo > $NEWTABLESSQL <<EOF
+			echo "
 create temp table t_added_tables (table_name text primary key);
 \copy t_added_tables (table_name) from '${NEWTABLESFILE}';
 analyze t_added_tables;
 create temp table t_slonik_code as 
-select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|| quote_literal(table_name) || ');' as slonik from t_added_tables
+select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|| quote_literal(table_name) || ');' as slonik from t_added_tables;
+select * from t_slonik_code;
 \copy (select slonik from t_slonik_code) to '${NEWTABLESSLONIK}';
-
-EOF
+" > $NEWTABLESSQL
 			psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
+			glog user.notice "Found new tables"
 			psql -d ${MAINDATABASE} -f "${NEWTABLESSQL}"
-			
-			
+			glog user.notice "Generated Slonik for new tables"
 			
 exit			
 			
