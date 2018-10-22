@@ -4,7 +4,7 @@ SUBCOMMAND=$1
 PARM1=$2
 PARM2=$3
 
-MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS:-${PGCOMITSCHEMAS:-"('pg_catalog','information_schema','${MAHOUTSCHEMA}')"}}
+MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS:-${PGCOMITSCHEMAS:-"('pg_catalog','information_schema','\"${MAHOUTSCHEMA}\"')"}}
 
 help () {
      echo "
@@ -34,7 +34,7 @@ mahout commands:
     List objects that are being changed by the upgrade
  mahout build [BUILDNAME] [FORMAT]
     Generates a build in specified format, one of (tar, tar.gz, tar.bz)
- mahout slony-attach [VERSION]
+ mahout slony_attach [VERSION]
     Initializes the present non-mahoutized database schemas for Slony cluster
     to the specified version.  Fail if any of the schemas does not match
     that version.
@@ -258,11 +258,11 @@ function mahout_init () {
 }
 
 function split_versions () {
-    local versioncontent=$1
+    local versioncontentdir=$1
     local sanswhitecomments
     local cversion
 
-    sanswhitecomments=$PWD/.mahout-temp/mahout-split-versions
+    sanswhitecomments=$PWD/.mahout-temp/mahout-unsplit-versions
     cut -d \# -f 1 < mahout.control | \
 	sed "s/^[ \t]*//" | \
 	sed "s/[ \t]*$//" | \
@@ -286,12 +286,10 @@ function split_versions () {
 		echo "line preceding first version" > /dev/null
 		;;
 	    *)
-		echo ${line} >> ${versioncontent}/${cversion}
+		echo ${line} >> ${versioncontentdir}/${cversion}
 		;;
 	esac
     done < ${sanswhitecomments}
-
-    rm -f ${sanswhitecomments}
 }
 
 
@@ -663,7 +661,7 @@ function mahout_capture () {
 	if [[ $propversion == ${DBVERSION} ]]; then
 	    # We have reached the point at which versions should get captured
 	    versionswanted=true
-	    glog user.notice "Capture examining versions to apply - already on ${propversion}"
+	    glog user.notice "Capture examining versions to apply - already have ${propversion}"
 	else
 	    if [[ $versionswanted == "true" ]]; then
 		# need to apply scripts to the database
@@ -972,6 +970,7 @@ function mahout_upgrade () {
     local depfodder=$PWD/.mahout-temp/mahout-upgrade-dependency-fodder
     local dependencies=$PWD/.mahout-temp/mahout-upgrade-dependencies
     local versionorder=$PWD/.mahout-temp/mahout-upgrade-version-order
+    local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-upgrade-version-content.XXXXXXXXXXXX`
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
     glog user.notice "calced dependencies"
     split_versions ${versioncontent}
@@ -980,7 +979,7 @@ function mahout_upgrade () {
 	if [[ $propversion == ${DBVERSION} ]]; then
 	    # We have reached the point at which versions should get captured
 	    versionswanted=true
-	    glog user.notice "Capture examining versions to apply - already on ${propversion}"
+	    glog user.notice "Capture examining versions to apply - already have ${propversion}"
 	else
 	    if [[ $versionswanted == "true" ]]; then
 		# need to apply scripts to the database
@@ -1577,6 +1576,7 @@ function mahout_slony_attach () {
 
 	# Now, run pgcmp against the two schemas:
 	PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
+
 	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
 	rc=$?
 	case ${rc} in
@@ -1795,7 +1795,7 @@ function mahout_slonik () {
 
 	# And run pgcmp against the two schemas
 	PGCMPWORK=$PWD/.mahout-temp/mahout-attach-pgcmp-work
-	mkdir -p $PWCMPWORK
+	mkdir -p $PGCMPWORK
 	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
 	rc=$?
 	case ${rc} in
@@ -1830,8 +1830,8 @@ function mahout_slonik () {
     local depfodder=$PWD/.mahout-temp/mahout-slonik-dependency-fodder
     local dependencies=$PWD/.mahout-temp/mahout-slonik-dependencies
     local versionorder=$PWD/.mahout-temp/mahout-slonik-version-order
-    local versioncontent=$PWD/.mahout-temp/mahout-slonik-version-content
-    local slonikscript="${PWD}/.mahout-temp/slonik-from-${DBVERSION}.slonik"
+    local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-slonik-version-content.XXXXXXXXXXXX`
+    local slonikscript=${PWD}/.mahout-temp/slonik-from-${DBVERSION}.slonik
 
     # Find the shape of the cluster, because we need to SUBSCRIBE SET for each relevant node
     # SLONYCLUSTER
@@ -1886,27 +1886,54 @@ cluster name=${SLONYCLUSTER};
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
     glog user.notice "calced dependencies"
     split_versions ${versioncontent}
+    glog user.notice "captured versions into ${versioncontent}"
+
+    # need get_mahout_version
+    local DBVERSION=`get_mahout_version "${MAINDATABASE}"`
+    glog user.notice "Main database on Mahout verson $DBVERSION"
+    
     versionswanted=false
-exit    
     for propversion in `cat ${versionorder}`; do
 	if [[ $propversion == ${DBVERSION} ]]; then
 	    # We have reached the point at which versions should get captured
 	    versionswanted=true
-	    glog user.notice "Capture examining versions to apply - already on ${propversion}"
+	    glog user.notice "Capture examining versions to apply - already have ${propversion}"
 	else
 	    if [[ $versionswanted == "true" ]]; then
 		# need to apply scripts to the database
 		glog user.notice "Slonik needs to apply version ${propversion}"
-		version_load_start ${propversion}
+
+		# Need to do this against each node, but much later!
+		# version_load_start ${propversion}
 		
 		glog user.notice "From script ${versioncontent}/${propversion}"
 		while read line
 		do
 		    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
-			echo "no action apropos for version line"
+			glog user.debug "no action apropos for version line"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
-  		        echo "no action apropos for requires line"
+			vrequires=`echo ${line} | sed "s/^requires[ \t]//"`
+			# This is where to do the pgcmp run to find tables/sequences
+			# added/dropped
+			# load old version in .mahout-data/$vrequires.pgcmp
+			# load new version in .mahout-data/$propversion.pgcmp
+			glog user.notice "Comparing $vrequires to $propversion to find objects to add/drop from replication"
+			PGCMPWORK=$PWD/.mahout-temp/mahout-attach-pgcmp-work
+			mkdir -p $PGCMPWORK
+			PGBINDIR=${PGBINDIR} PGCLABEL1=$vrequires PGCLABEL2=$propversion PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=.mahout-data/${vrequires}.pgcmp PGCMPINPUT2=.mahout-data/${propversion}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+			rc=$?
+			glog user.notice "pgcmp rc=${rc}, expecting non-zero as we expect a difference"
+			# Now, figure out the tables to be dropped
+
+			TABLESADDED="select object_name from unexplained_items where object_type = 'table' and difference_type='missing in 1st DB';"
+			TABLESDROPPED="select object_name from unexplained_items where object_type = 'table' and difference_type='missing in 2nd DB';"
+			SEQSADDED="select object_name from unexplained_items where object_type = 'sequence' and difference_type='missing in 1st DB';"
+			SEQSDROPPED="select object_name from unexplained_items where object_type = 'sequence' and difference_type='missing in 2nd DB';"
+			
+			
+exit			
+			
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
 			local sqlscript=`echo ${line} | cut -d " " -f 2`
@@ -1915,7 +1942,6 @@ exit
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 			action_start $propversion slonik "DDL script" ${sqlscript} "${md5sum}"
 
-			# set up DB with the pgcmp data to get tables to be added/dropped
 exit			
 ###         - determine the tables to be dropped, put SET DROP TABLE into slonik script
 ###            We just did a pgcmp run, so can use that database...
@@ -1969,8 +1995,8 @@ exit
 	    fi
 	fi
     done		
-    rm -f ${depfodder} ${dependencies} ${versionorder}
-    rm -rf ${versioncontent} ${PGCMPWORK}
+#    rm -f ${depfodder} ${dependencies} ${versionorder}
+#    rm -rf ${versioncontent} ${PGCMPWORK}
     
     echo "slonik Not fully implemented yet"
     exit 1    

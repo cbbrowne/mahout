@@ -329,7 +329,7 @@ SLONYCLUSTER=${SLONYCLUSTER}
 SLONYMAINSET=${SLONYMAINSET}
 SLONYOMITSEQUENCES=${SLONYOMITSEQUENCES}
 SLONYOMITTABLES=${SLONYOMITTABLES}
-MAHOUTOMITSCHEMAS=\"('_${SLONYCLUSTER}', 'nullschema', 'pg_catalog', 'information_schema', 'MaHoutSchema')\"
+MAHOUTOMITSCHEMAS=\"('_${SLONYCLUSTER}', 'nullschema', 'pg_catalog', 'information_schema', '\\\"MaHoutSchema\\\"')\"
 
 " >> ${TARGETMHDIR}/mahout.conf.keep
     cp ${TARGETMHDIR}/mahout.conf.keep ${TARGETMHDIR}/mahout.conf
@@ -354,7 +354,9 @@ echo "
    create table if not exists t1 (id serial primary key, name text not null unique, created_on timestamptz default now());
    create schema if not exists subschema;
    create table if not exists subschema.t2 (id serial primary key, name text not null unique, created_on timestamptz default now());
-   alter table t1 add column deleted_on timestamptz;
+   alter table t1 add column \"Deleted_On\" timestamptz;
+   create schema if not exists \"StudlySchema\";
+   create table \"StudlySchema\".\"StudlyTable\" (id serial primary key, name text not null unique);
 " > ${PROJECTNAME}/1.1/stuff.sql
 
 glog user.notice "mahout capture on v1.1"
