@@ -649,7 +649,8 @@ function mahout_capture () {
     local depfodder=$PWD/.mahout-temp/mahout-capture-dependency-fodder
     local dependencies=$PWD/.mahout-temp/mahout-capture-dependencies
     local versionorder=$PWD/.mahout-temp/mahout-capture-version-order
-    local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-capture-version-content.XXXXXXXXXXXX`
+    local versioncontent=$PWD/.mahout-temp/mahout-capture-version-content
+    mkdir -d versioncontent
     calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
     glog user.debug "calced dependencies"
 
@@ -906,7 +907,8 @@ function mahout_check () {
     #    - Needs to have a config parm for PGCEXPLANATIONS
     glog user.notice "run pgcmp to examine schema for differences against version ${DBVERSION}"
 
-    PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-check-pgcmp-work.XXXXXXXXXXX`
+    PGCMPWORK=$PWD/.mahout-temp/mahout-check-pgcmp-work
+    mkdir -d $PGCMPWORK
     PGBINDIR=${PGBINDIR} PGCLABEL1=TempCurrent PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
@@ -948,7 +950,8 @@ function mahout_upgrade () {
     dump_current_schema CurrentSchema ${CURRENTCMP} ${MAINDATABASE}
 
     glog user.info "run pgcmp to examine schema for differences against version ${DBVERSION}"
-    PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-upgrade-pgcmp-work.XXXXXXXXXXX`
+    PGCMPWORK=$PWD/.mahout-temp/mahout-upgrade-pgcmp-work
+    mkdir -d $PGCMPWORK
     PGBINDIR=${PGBINDIR} PGCLABEL1=CurrentSchema PGCLABEL2=${DBVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CURRENTCMP} PGCMPINPUT2=.mahout-data/${DBVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
     rc=$?
     case ${rc} in
@@ -1610,7 +1613,6 @@ function mahout_slony_attach () {
     #  So, hygiene is good.  No differences.  Time to add Mahout
     #  schema to all the nodes
 
-
     local SETUPQ=$PWD/.mahout-temp/mahout-attach-setup
     mahout_initialize_schema > ${SETUPQ}
     echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'slony attach mahout', '${PRODVERSION}', 'slony_attach', 'mahout', 'initialized', 't');
@@ -1925,11 +1927,57 @@ cluster name=${SLONYCLUSTER};
 			rc=$?
 			glog user.notice "pgcmp rc=${rc}, expecting non-zero as we expect a difference"
 			# Now, figure out the tables to be dropped
+			DEADTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-dropped.txt
+			DEADTABLESQL="\COPY (select object_name from unexplained_items where object_type = 'table' and difference_type = 'missing in 2nd database') to '${DEADTABLESFILE}';"
+			glog user.notice "Dump via $DEADTABLESQL"
+			glog user.notice "Dump to $DEADTABLESFILE"
+			DEADTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-dropped.slonik
+			DROPTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-dropped.sql
+			echo > $DROPTABLESSQL <<EOF
 
-			TABLESADDED="select object_name from unexplained_items where object_type = 'table' and difference_type='missing in 1st DB';"
-			TABLESDROPPED="select object_name from unexplained_items where object_type = 'table' and difference_type='missing in 2nd DB';"
-			SEQSADDED="select object_name from unexplained_items where object_type = 'sequence' and difference_type='missing in 1st DB';"
-			SEQSDROPPED="select object_name from unexplained_items where object_type = 'sequence' and difference_type='missing in 2nd DB';"
+create temp table dropped_tables (table_name text primary key);
+\COPY dropped_tables (table_name) from '${DEADTABLESFILE}';
+analyze dropped_tables;
+\COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from dropped_tables where table_name = quote_ident(tab_nspname) || '.' quote_ident(tab_relname))) to '${DROPTABLESSLONIK}';
+EOF
+
+			psql -d ${COMPARISONDATABASE} -c "${DEADTABLESQL}"
+			psql -d ${MAINDATABASE} -f "${DROPTABLESQL}"
+
+			DEADSEQUENCESFILE=$PWD/.mahout-temp/mahout-slony-sequences-dropped.txt
+			DEADSEQUENCESQL="\COPY (select object_name from unexplained_items where object_type = 'sequence' and difference_type = 'missing in 2nd database') to '${DEADSEQUENCESFILE}';"
+			glog user.notice "Dump via $DEADSEQUENCESQL"
+			glog user.notice "Dump to $DEADSEQUENCESFILE"
+			DEADSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-dropped.slonik
+			DROPSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-dropped.sql
+			echo > $DROPSEQUENCESSQL <<EOF
+create temp table t_dropped_tables (table_name text primary key);
+\COPY t_dropped_tables (table_name primary key) from '${DEADSEQUENCESFILE}';
+analyze dropped_tables;
+\COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from t_dropped_tables where table_name = quote_ident(tab_nspname) || '.' quote_ident(tab_relname))) to '${DROPSEQUENCESSLONIK}';
+EOF
+
+			psql -d ${COMPARISONDATABASE} -c "${DEADSEQUENCESQL}"
+			psql -d ${MAINDATABASE} -f "${DROPSEQUENCESSQL}"
+
+			NEWTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-added.txt
+			TABLESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'table' and difference_type='missing in 1st DB') to '${NEWTABLESFILE}';"
+			psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
+
+			NEWTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-added.slonik
+			NEWTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-added.sql
+			echo > $NEWTABLESSQL <<EOF
+create temp table t_added_tables (table_name text primary key);
+\copy t_added_tables (table_name) from '${NEWTABLESFILE}';
+analyze t_added_tables;
+create temp table t_slonik_code as 
+select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|| quote_literal(table_name) || ');' as slonik from t_added_tables
+\copy (select slonik from t_slonik_code) to '${NEWTABLESSLONIK}';
+
+EOF
+			psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
+			psql -d ${MAINDATABASE} -f "${NEWTABLESSQL}"
+			
 			
 			
 exit			
