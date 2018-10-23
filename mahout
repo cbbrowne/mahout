@@ -1938,7 +1938,7 @@ create temp table dropped_tables (table_name text primary key);
 \COPY dropped_tables (table_name) from '${DEADTABLESFILE}';
 analyze dropped_tables;
 \COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from dropped_tables where table_name = quote_ident(tab_nspname) || '.' quote_ident(tab_relname))) to '${DROPTABLESSLONIK}';
-" > $DROPTABLESSQL
+" > $DROPTABLESLONIK
 
 			psql -d ${COMPARISONDATABASE} -c "${DEADTABLESQL}"
 			psql -d ${MAINDATABASE} -f "${DROPTABLESQL}"
@@ -1954,7 +1954,7 @@ create temp table t_dropped_tables (table_name text primary key);
 \COPY t_dropped_tables (table_name primary key) from '${DEADSEQUENCESFILE}';
 analyze dropped_tables;
 \COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from t_dropped_tables where table_name = quote_ident(tab_nspname) || '.' quote_ident(tab_relname))) to '${DROPSEQUENCESSLONIK}';
-" > $DROPSEQUENCESSQL
+" > $DROPSEQUENCESSLONIK
 
 			psql -d ${COMPARISONDATABASE} -c "${DEADSEQUENCESQL}"
 			glog user.notice "Found dead sequences"
@@ -1980,44 +1980,61 @@ select * from t_slonik_code;
 			glog user.notice "Found new tables"
 			psql -d ${MAINDATABASE} -f "${NEWTABLESSQL}"
 			glog user.notice "Generated Slonik for new tables"
+
+			NEWSEQUENCESFILE=$PWD/.mahout-temp/mahout-slony-sequences-added.txt
+			SEQUENCESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'sequence' and difference_type='missing in 1st DB') to '${NEWSEQUENCESFILE}';"
+			psql -d ${COMPARISONDATABASE} -c "${SEQUENCESADDEDSQL}"
+
+			NEWSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-added.slonik
+			NEWSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-added.sql
+			echo "
+create temp table t_added_sequences (sequence_name text primary key);
+\copy t_added_sequences (sequence_name) from '${NEWSEQUENCESFILE}';
+analyze t_added_sequences;
+create temp table t_slonik_code as 
+select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequences='|| quote_literal(sequence_name) || ');' as slonik from t_added_sequences;
+select * from t_slonik_code;
+\copy (select slonik from t_slonik_code) to '${NEWSEQUENCESSLONIK}';
+" > $NEWSEQUENCESSQL
+			psql -d ${COMPARISONDATABASE} -c "${SEQUENCESADDEDSQL}"
+			glog user.notice "Found new sequences"
+			psql -d ${MAINDATABASE} -f "${NEWSEQUENCESSQL}"
+			glog user.notice "Generated Slonik for new sequences"
+
+			DDLADDSET=$PWD/.mahout-temp/mahout-ddl-add-set.slonik
+			echo "create set (id=${SLONYTEMPSET}, origin=${ORIGINNODEID}, comment='Temporary set for Mahout to add data for version ${propversion}');" > $DDLADDSET
+
+			DDLSLONIK=$PWD/.mahout-temp/mahout-ddl-script.slonik
 			
-exit			
+			DDLACTIONEND=$PWD/.mahout-temp/mahout-ddl-end-execute-script.sql
+			DDLEXECUTESLONIK=$PWD/.mahout-temp/mahout-ddl-execute-script.slonik
+			echo "execute script (event node=${ORIGINNODEID}, filename='${DDLSLONIK}');"
+			echo "" > $DDLEXECUTESLONIK
 			
+			SUBSCRIBESETS=$PWD/.mahout-temp/slonik-subscribe-sets.slonik
+			echo "echo 'Next, subscribe nodes';" > $SUBSCRIBESETS
+			for node in `cat $NODEORDERFILE | egrep -v '^${ORIGINNODEID}\$'`; do
+			    provider=`egrep ' ${node}\$' $SHAPEFILE | cut -d " " -f 1`
+			    glog user.notice " subscription from $node to $provider"
+			    echo "subscribe set (id=${SLONYTEMPSET}, provider=$provider, receiver=$node, forward=yes);
+wait for event		     (origin=$ORIGINNODEID, confirmed=ALL, wait on=$ORIGINNODEID);
+"
+
+#			     >> $SUBSCRIBESETS
+			done
+			echo "merge set (id=${SLONYMAINSET}, add id=${SLONYTEMPSET}, origin=$ORIGINNODEID);" >> $SUBSCRIBESETS
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
 			local sqlscript=`echo ${line} | cut -d " " -f 2`
-			glog user.notice "apply DDL Script ${sqlscript}"
+			glog user.notice "add DDL Script ${sqlscript}"
 			md5sum=`md5sum < ${sqlscript}`
-			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-			action_start $propversion slonik "DDL script" ${sqlscript} "${md5sum}"
-
-exit			
-###         - determine the tables to be dropped, put SET DROP TABLE into slonik script
-###            We just did a pgcmp run, so can use that database...
-###            psql -d ${COMPARISONDATABASE} -c get_list_of_tables
-###         - determine the sequences to be dropped, put SET DROP SEQUENCE into slonik script
-###         - put EXECUTE SCRIPT for each ddl script
-###         - CREATE SET for the new set
-###           create set (id=$SLONYTEMPSET, origin=$ORIGINNODEID, comment='Mahout set for upgrade from $DBVERSION');
-###         - determine the tables to be added, generating SET ADD TABLE
-###      #     set add table (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
-###         - determine the sequences to be added, generating SET ADD SEQUENCE
-###      #     set add sequence (set id=$SLONYTEMPSET, id=???, origin=$ORIGINNODEID, fully qualified name='table name', comment='upgraded by Mahout');
-###         - series of SUBSCRIBE SET, order based on NODEORDERFILE
-###     #   - wait for event (origin=all, confirmed=all, wait on=$ORIGINNODE);
+			echo "execute script (sql='insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values (\'${propversion}\', now(), \'slonik\', \'DDL script\', \'${sqlscript}\', \'${md5sum}\');', event node=$ORIGINNODEID);
+execute script (filename='$sqlscript', event node=${ORIGINNODEID});
+update \"${MAHOUTSCHEMA}\".action_log set result=\'completed\', success=\'true\', action_end=now() where version=\'${propversion}\' and action=\'slonik\' and action_type=\'DDL script\' and action_source=\'${sqlscript}\' and action_md5 = \'${md5sum}\' and action_end is null;
+" >> $DDLEXECUTESLONIK
 			
-			
-			
-			psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-			retcode=$?
-			if [ $retcode -ne 0 ]; then
-			    glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
-			    action_end "slonik" "DDL script" "${sqlscript}" "${md5sum}" f
-			    exit 1
-			else
-			    action_end ${propversion} "slonik" "DDL script" "${sqlscript}" "${md5sum}" t
-			fi
 		    fi
+
 		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
 			local unixcommand=`echo ${line} | cut -d " " -f 2`
 			local unixarg=`echo ${line} | cut -d " " -f 3`
@@ -2037,7 +2054,17 @@ exit
 		done < ${versioncontent}/${propversion}
 
 		# Apply new version to it...
+		echo "execute script (sql='update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = \'${propversion}\';', event node=$ORIGINNODEID);" >> $DDLEXECUTESLONIK
 		version_load_end ${propversion}
+
+		# After end of loop, assemble the slonik script and run it, then...
+		DDLACTIONSTART=$PWD/.mahout-temp/mahout-ddl-start-execute-script.sql
+		echo "include <${PWD}/.mahout-temp/mahout-preamble.slonik>;" > $DDLSLONIK
+		for addition in $DEADTABLESSLONIK $DEADSEQUENCESSLONIK $DDLEXECUTESLONIK $DDLADDSET $NEWTABLESSLONIK $NEWSEQUENCESSLONIK $SUBSCRIBESETS; do
+		    cat $addition >> $DDLSLONIK
+		done
+		glog user.notice "Slonik DDL ready to apply: $DDLSLONIK"
+exit
 		
    	    else
 		glog user.debug "Slonik not applying earlier version ${propversion}"
