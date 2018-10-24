@@ -118,7 +118,8 @@ cluster name=${SLONYCLUSTER};
 for nodeinfo in origin:1 rep2:2 rep3:3 rep4:4: rep5:5 rep6:6; do
     nodenum=`echo $nodeinfo | cut -d : -f 2` 
     nodedb=`echo $nodeinfo | cut -d : -f 1`
-    glog user.info "Set up slon.conf for node $nodenum"
+    conffile=${slonydir}/slon.conf.${nodenum}
+    glog user.info "Set up slon.conf for node $nodenum - ${conffile}"
     echo "### Slony conf for node ${nodenum}
 pid_file='${slonydir}/pid/node${nodenum}.pid'
 cluster_name='${SLONYCLUSTER}'
@@ -126,7 +127,7 @@ conn_info='${DBCLUSTER}/${nodedb}'
 syslog=2
 syslog_facility=LOCAL0
 syslog_ident=slon
-" > ${slonydir}/slon.conf.${nodenum}
+" > ${conffile}
     echo "node $nodenum admin conninfo = '${DBCLUSTER}/${nodedb}';" >> $slonikpreamble
 done
 
@@ -355,9 +356,9 @@ echo "
    create table if not exists t1 (id serial primary key, name text not null unique, created_on timestamptz default now());
    create schema if not exists subschema;
    create table if not exists subschema.t2 (id serial primary key, name text not null unique, created_on timestamptz default now());
-   alter table t1 add column \"Deleted_On\" timestamptz;
+   alter table t1 add column if not exists \"Deleted_On\" timestamptz;
    create schema if not exists \"StudlySchema\";
-   create table \"StudlySchema\".\"StudlyTable\" (id serial primary key, name text not null unique);
+   create table if not exists \"StudlySchema\".\"StudlyTable\" (id serial primary key, name text not null unique);
 " > ${PROJECTNAME}/1.1/stuff.sql
 
 glog user.notice "mahout capture on v1.1"
