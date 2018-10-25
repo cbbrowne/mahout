@@ -2017,8 +2017,8 @@ select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequen
 			    if [[ $node -ne $ORIGINNODEID ]]; then
 				QPROVIDER="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET} and sub_receiver=${node};"
 				provider=`psql -d "${MAINDATABASE}" -qAt -c "${QPROVIDER}"`
-				echo "subscribe set (id=${SLONYTEMPSET}, provider=$provider, receiver=$node, forward=yes);echo 'subscribing node ${receiver} to replication set ${SLONYTEMPSET}';
-wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$node);echo 'waited for completion of node ${receiver} subscription';
+				echo "subscribe set (id=${SLONYTEMPSET}, provider=$provider, receiver=$node, forward=yes);echo 'subscribing node ${node} to replication set ${SLONYTEMPSET}'; sync (id=${ORIGINNODEID})
+wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'waited for completion of node ${node} subscription';
 " >> $SUBSCRIBESETS
 			    fi
 			done
@@ -2069,7 +2069,7 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$node);echo 'waited
 		    cat $addition >> $DDLSLONIK
 		done
 		glog user.notice "Slonik DDL ready to apply: $DDLSLONIK"
-		slonik ${PGBINDIR}/slonik $DDLSLONIK
+		${PGBINDIR}/slonik $DDLSLONIK
 		
    	    else
 		glog user.debug "Slonik not applying earlier version ${propversion}"
