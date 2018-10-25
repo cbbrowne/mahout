@@ -2008,7 +2008,7 @@ select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequen
 			DDLEXECUTESLONIK=$PWD/.mahout-temp/mahout-ddl-execute-script-${propversion}.slonik
 
 			SLVERSIONPREFIX=$PWD/.mahout-temp/slonik-log-version-prefix-${propversion}.sql
-			echo "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', now());'" $SLVERSIONPREFIX
+			echo "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', now());" > $SLVERSIONPREFIX
 			echo "execute script (event node=${ORIGINNODEID}, filename='${SLVERSIONPREFIX}');" > $DDLEXECUTESLONIK
 			
 			SUBSCRIBESETS=$PWD/.mahout-temp/slonik-subscribe-sets-${propversion}.slonik
@@ -2058,7 +2058,7 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$node);
 
 		# Apply new version to it...
 		SLVERSIONSUFFIX=$PWD/.mahout-temp/slonik-log-version-${propversion}.sql
-		echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${propversion}';'" $SLVERSIONSUFFIX
+		echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${propversion}';" > $SLVERSIONSUFFIX
 		echo "execute script (filename='${SLVERSIONSUFFIX}', event node=$ORIGINNODEID);" >> $DDLEXECUTESLONIK
 
 		# After end of loop, assemble the slonik script and run it, then...
