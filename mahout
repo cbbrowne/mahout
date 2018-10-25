@@ -233,12 +233,12 @@ function mahout_init () {
     glog user.info "mahout: please edit ${MO} to validate configuration parameters"
 
     echo "begin;  create schema if not exists \"${MHSCH}\";  set search_path to \"${MHSCH}\";
-    create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
-    create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
+    create table if not exists version_log (version text primary key, install_start timestamptz default clock_timestamp(), install_end timestamptz);
+    create table if not exists action_log (id serial primary key, action_start timestamptz default clock_timestamp(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
   delete from version_log;
   delete from action_log;
   insert into version_log (version, install_start, install_end)
-     select 'Base', now(), clock_timestamp();
+     select 'Base', clock_timestamp(), clock_timestamp();
   insert into action_log (action_start, action_end, action, version, action_type, action_source, action_md5, result, success)
   select now(), clock_timestamp(), 'Initialize Base Schema', 'Base', 'initialize', 'mahout tool', '${checksum}', 'completed', 't'::boolean;
   commit; " > ${MAHOUTTMP}/setup-mahout-schema.sql
@@ -519,7 +519,7 @@ function get_mahout_version () {
 
 function version_load_start () {
     local version=$1
-    psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${version}', now());"  > /dev/null 2>&1
+    psql -d ${MAINDATABASE} -c "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${version}', clock_timestamp());"  > /dev/null 2>&1
     local retcode=$?
     if [ $retcode -ne 0 ]; then
 	glog user.error "Unable to set up version log for version [${version}] against database [${MAINDATABASE}]"
@@ -531,7 +531,7 @@ function version_load_start () {
 
 function version_load_end () {
     local version=$1
-    psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${version}';"  > /dev/null 2>&1
+    psql -d ${MAINDATABASE} -c "update \"${MAHOUTSCHEMA}\".version_log set install_end = clock_timestamp() where version = '${version}';"  > /dev/null 2>&1
 
     local retcode=$?
     if [ $retcode -ne 0 ]; then
@@ -549,7 +549,7 @@ function action_start () {
     local actionsource=$4
     local amd5=$5
     
-    local asquery="insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${version}', now(), '${action}', '${actiontype}', '${actionsource}', '${amd5}');"
+    local asquery="insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${version}', clock_timestamp(), '${action}', '${actiontype}', '${actionsource}', '${amd5}');"
 
     psql -d ${MAINDATABASE} -c "${asquery}" > /dev/null 2>&1
 
@@ -569,7 +569,7 @@ function action_end () {
     local amd5=$5
     local success=$6
     
-    local asquery="update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='${success}', action_end=now() where version='${version}' and action='${action}' and action_type='${actiontype}' and action_source='${actionsource}' and action_md5 = '${amd5}' and action_end is null;"
+    local asquery="update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='${success}', action_end=clock_timestamp() where version='${version}' and action='${action}' and action_type='${actiontype}' and action_source='${actionsource}' and action_md5 = '${amd5}' and action_end is null;"
 
     psql -d ${MAINDATABASE} -c "${asquery}"  > /dev/null 2>&1
 
@@ -1047,8 +1047,8 @@ function mahout_upgrade () {
 
 function mahout_initialize_schema () {
     echo "begin;  create schema if not exists \"${MAHOUTSCHEMA}\";  set search_path to \"${MAHOUTSCHEMA}\";
-    create table if not exists version_log (version text primary key, install_start timestamptz default now(), install_end timestamptz);
-    create table if not exists action_log (id serial primary key, action_start timestamptz default now(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
+    create table if not exists version_log (version text primary key, install_start timestamptz default clock_timestamp(), install_end timestamptz);
+    create table if not exists action_log (id serial primary key, action_start timestamptz default clock_timestamp(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
   truncate version_log;
   truncate action_log;"
 }
@@ -1080,7 +1080,7 @@ function mahout_install () {
 	    ;;
     esac
     
-    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'install mahout', 'MahoutInstall', 'install', 'mahout', 'initialized', 't');
+    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (clock_timestamp(), clock_timestamp(), 'install mahout', 'MahoutInstall', 'install', 'mahout', 'initialized', 't');
   commit;" >> ${SETUPQ}
 
     psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
@@ -1369,8 +1369,8 @@ function mahout_attach () {
     # that it was marked as OK with the specified version
     local SETUPQ=$PWD/.mahout-temp/mahout-attach-setup
     mahout_initialize_schema > ${SETUPQ}
-    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
-    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', now(), clock_timestamp());
+    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (clock_timestamp(), clock_timestamp(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
+    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', clock_timestamp(), clock_timestamp());
   commit;" >> ${SETUPQ}
 
     psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
@@ -1507,8 +1507,8 @@ function mahout_attach () {
     # that it was marked as OK with the specified version
     local SETUPQ=$PWD/.mahout-temp/mahout-attach-setup
     mahout_initialize_schema > ${SETUPQ}
-    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
-    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', now(), clock_timestamp());
+    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (clock_timestamp(), clock_timestamp(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
+    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', clock_timestamp(), clock_timestamp());
   commit;" >> ${SETUPQ}
 
     psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
@@ -1615,8 +1615,8 @@ function mahout_slony_attach () {
 
     local SETUPQ=$PWD/.mahout-temp/mahout-attach-setup
     mahout_initialize_schema > ${SETUPQ}
-    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (now(), now(), 'slony attach mahout', '${PRODVERSION}', 'slony_attach', 'mahout', 'initialized', 't');
-    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', now(), clock_timestamp());
+    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (clock_timestamp(), clock_timestamp(), 'slony attach mahout', '${PRODVERSION}', 'slony_attach', 'mahout', 'initialized', 't');
+    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', clock_timestamp(), clock_timestamp());
   commit;" >> ${SETUPQ}
 
     nodeprobs=false
@@ -2008,7 +2008,7 @@ select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequen
 			DDLEXECUTESLONIK=$PWD/.mahout-temp/mahout-ddl-execute-script-${propversion}.slonik
 
 			SLVERSIONPREFIX=$PWD/.mahout-temp/slonik-log-version-prefix-${propversion}.sql
-			echo "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', now());" > $SLVERSIONPREFIX
+			echo "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', clock_timestamp());" > $SLVERSIONPREFIX
 			echo "execute script (event node=${ORIGINNODEID}, filename='${SLVERSIONPREFIX}');" > $DDLEXECUTESLONIK
 			
 			SUBSCRIBESETS=$PWD/.mahout-temp/slonik-subscribe-sets-${propversion}.slonik
@@ -2017,7 +2017,7 @@ select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequen
 			    if [[ $node -ne $ORIGINNODEID ]]; then
 				QPROVIDER="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET} and sub_receiver=${node};"
 				provider=`psql -d "${MAINDATABASE}" -qAt -c "${QPROVIDER}"`
-				echo "subscribe set (id=${SLONYTEMPSET}, provider=$provider, receiver=$node, forward=yes);echo 'subscribing node ${node} to replication set ${SLONYTEMPSET}'; sync (id=${ORIGINNODEID})
+				echo "subscribe set (id=${SLONYTEMPSET}, provider=$provider, receiver=$node, forward=yes);echo 'subscribing node ${node} to replication set ${SLONYTEMPSET}'; sync (id=${ORIGINNODEID});
 wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'waited for completion of node ${node} subscription';
 " >> $SUBSCRIBESETS
 			    fi
@@ -2030,11 +2030,11 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 				md5sum=`md5sum < ${sqlscript}`
 				SLACTIONS=$(( $SLACTIONS+1 ))
 				SLEXECPREFIX=$PWD/.mahout-temp/slonik-pre-action-log-${propversion}-${SLACTIONS}.sql
-				echo "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', now(), 'slonik', 'DDL script', '${sqlscript}', '${md5sum}');" > $SLEXECPREFIX
+				echo "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', clock_timestamp(), 'slonik', 'DDL script', '${sqlscript}', '${md5sum}');" > $SLEXECPREFIX
 				echo "execute script (filename='${SLEXECPREFIX}', event node=$ORIGINNODEID);echo 'distribute action_log beginning';" >> $DDLEXECUTESLONIK
 				echo "execute script (filename='${sqlscript}', event node=$ORIGINNODEID);echo 'Invoke DDL: ${sqlscript}';" >> $DDLEXECUTESLONIK
 				SLEXECSUFFIX=$PWD/.mahout-temp/slonik-post-action-log-${propversion}-${SLACTIONS}.sql
-				echo "update \"${MAHOUTSCHEMA}\".action_log set result='completed', success='true', action_end=now() where version='${propversion}' and action='slonik' and action_type='DDL script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_end is null;" > $SLEXECSUFFIX
+				echo "update \"${MAHOUTSCHEMA}\".action_log set result='completed', success='true', action_end=clock_timestamp() where version='${propversion}' and action='slonik' and action_type='DDL script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_end is null;" > $SLEXECSUFFIX
 				echo "execute script (filename='${SLEXECSUFFIX}', event node=$ORIGINNODEID); echo 'complete action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
 		    fi
 
@@ -2058,7 +2058,7 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 
 		# Apply new version to it...
 		SLVERSIONSUFFIX=$PWD/.mahout-temp/slonik-log-version-${propversion}.sql
-		echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${propversion}';" > $SLVERSIONSUFFIX
+		echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = clock_timestamp() where version = '${propversion}';" > $SLVERSIONSUFFIX
 		echo "execute script (filename='${SLVERSIONSUFFIX}', event node=$ORIGINNODEID); echo 'complete mahout logs for version ${propversion}';" >> $DDLEXECUTESLONIK
 
 		# After end of loop, assemble the slonik script and run it, then...
