@@ -2017,12 +2017,12 @@ select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequen
 			    if [[ $node -ne $ORIGINNODEID ]]; then
 				QPROVIDER="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET} and sub_receiver=${node};"
 				provider=`psql -d "${MAINDATABASE}" -qAt -c "${QPROVIDER}"`
-				echo "subscribe set (id=${SLONYTEMPSET}, provider=$provider, receiver=$node, forward=yes);
-wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$node);
+				echo "subscribe set (id=${SLONYTEMPSET}, provider=$provider, receiver=$node, forward=yes);echo 'subscribing node ${receiver} to replication set ${SLONYTEMPSET}';
+wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$node);echo 'waited for completion of node ${receiver} subscription';
 " >> $SUBSCRIBESETS
 			    fi
 			done
-			echo "echo 'Merge temporary set ${SLONYTEMPSET} into main set ${SLONYMAINSET}'; merge set (id=${SLONYMAINSET}, add id=${SLONYTEMPSET}, origin=$ORIGINNODEID);" >> $SUBSCRIBESETS
+			echo "echo 'Merge temporary set ${SLONYTEMPSET} into main set ${SLONYMAINSET}'; merge set (id=${SLONYMAINSET}, add id=${SLONYTEMPSET}, origin=$ORIGINNODEID); echo '${SLONYTEMPSET} merged';" >> $SUBSCRIBESETS
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
 				local sqlscript=`echo ${line} | cut -d " " -f 2`
@@ -2031,11 +2031,11 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$node);
 				SLACTIONS=$(( $SLACTIONS+1 ))
 				SLEXECPREFIX=$PWD/.mahout-temp/slonik-pre-action-log-${propversion}-${SLACTIONS}.sql
 				echo "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', now(), 'slonik', 'DDL script', '${sqlscript}', '${md5sum}');" > $SLEXECPREFIX
-				echo "execute script (filename='${SLEXECPREFIX}', event node=$ORIGINNODEID);" >> $DDLEXECUTESLONIK
-				echo "execute script (filename='${sqlscript}', event node=$ORIGINNODEID);" >> $DDLEXECUTESLONIK
+				echo "execute script (filename='${SLEXECPREFIX}', event node=$ORIGINNODEID);echo 'distribute action_log beginning';" >> $DDLEXECUTESLONIK
+				echo "execute script (filename='${sqlscript}', event node=$ORIGINNODEID);echo 'Invoke DDL: ${sqlscript}';" >> $DDLEXECUTESLONIK
 				SLEXECSUFFIX=$PWD/.mahout-temp/slonik-post-action-log-${propversion}-${SLACTIONS}.sql
 				echo "update \"${MAHOUTSCHEMA}\".action_log set result='completed', success='true', action_end=now() where version='${propversion}' and action='slonik' and action_type='DDL script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_end is null;" > $SLEXECSUFFIX
-				echo "execute script (filename='${SLEXECSUFFIX}', event node=$ORIGINNODEID);" >> $DDLEXECUTESLONIK
+				echo "execute script (filename='${SLEXECSUFFIX}', event node=$ORIGINNODEID); echo 'complete action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
 		    fi
 
 		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
@@ -2059,7 +2059,7 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$node);
 		# Apply new version to it...
 		SLVERSIONSUFFIX=$PWD/.mahout-temp/slonik-log-version-${propversion}.sql
 		echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = now() where version = '${propversion}';" > $SLVERSIONSUFFIX
-		echo "execute script (filename='${SLVERSIONSUFFIX}', event node=$ORIGINNODEID);" >> $DDLEXECUTESLONIK
+		echo "execute script (filename='${SLVERSIONSUFFIX}', event node=$ORIGINNODEID); echo 'complete mahout logs for version ${propversion}';" >> $DDLEXECUTESLONIK
 
 		# After end of loop, assemble the slonik script and run it, then...
 		DDLACTIONSTART=$PWD/.mahout-temp/mahout-ddl-start-execute-script.sql
