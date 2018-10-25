@@ -1580,7 +1580,7 @@ function mahout_slony_attach () {
 	# Now, run pgcmp against the two schemas:
 	PGCMPWORK=`mktemp -d $PWD/.mahout-temp/mahout-attach-pgcmp-work.XXXXXXXXXXX`
 
-	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK} PGCMPIGNORESLONYTRIGGERS=true  ${PGCMPHOME}/pgcmp
 	rc=$?
 	case ${rc} in
 	    0)
@@ -1798,7 +1798,7 @@ function mahout_slonik () {
 	# And run pgcmp against the two schemas
 	PGCMPWORK=$PWD/.mahout-temp/mahout-attach-pgcmp-work
 	mkdir -p $PGCMPWORK
-	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+	PGBINDIR=${PGBINDIR} PGCLABEL1="${LABEL}" PGCLABEL2=${PRODVERSION} PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=.mahout-data/${PRODVERSION}.pgcmp PGCWORKDIR=${PGCMPWORK} PGCMPIGNORESLONYTRIGGERS=true ${PGCMPHOME}/pgcmp
 	rc=$?
 	case ${rc} in
 	    0)
@@ -1924,7 +1924,7 @@ cluster name=${SLONYCLUSTER};
 			glog user.notice "Comparing $vrequires to $propversion to find objects to add/drop from replication"
 			PGCMPWORK=$PWD/.mahout-temp/mahout-attach-pgcmp-work
 			mkdir -p $PGCMPWORK
-			PGBINDIR=${PGBINDIR} PGCLABEL1=$vrequires PGCLABEL2=$propversion PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=.mahout-data/${vrequires}.pgcmp PGCMPINPUT2=.mahout-data/${propversion}.pgcmp PGCWORKDIR=${PGCMPWORK}  ${PGCMPHOME}/pgcmp
+			PGBINDIR=${PGBINDIR} PGCLABEL1=$vrequires PGCLABEL2=$propversion PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=.mahout-data/${vrequires}.pgcmp PGCMPINPUT2=.mahout-data/${propversion}.pgcmp PGCWORKDIR=${PGCMPWORK} PGCMPIGNORESLONYTRIGGERS=true  ${PGCMPHOME}/pgcmp
 			rc=$?
 			glog user.notice "pgcmp rc=${rc}, expecting non-zero as we expect a difference"
 			# Now, figure out the tables to be dropped
