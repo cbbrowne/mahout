@@ -2076,55 +2076,55 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 	    fi
 	fi
     done		
-#    rm -f ${depfodder} ${dependencies} ${versionorder}
-#    rm -rf ${versioncontent} ${PGCMPWORK}
+    rm -f ${depfodder} ${dependencies} ${versionorder}
+    rm -rf ${versioncontent} ${PGCMPWORK}
     summary slonik
 }
 
 case $SUBCOMMAND in
     init)
-	mahout_init ${PARM1}
-	;;
+		mahout_init ${PARM1}
+		;;
     capture)
-	mahout_capture
-	;;
+		mahout_capture
+		;;
     attach)
-	mahout_attach ${PARM1}
-	;;
+		mahout_attach ${PARM1}
+		;;
     check)
-	mahout_check
-	;;
+		mahout_check
+		;;
     install)
-	mahout_install
-	;;
+		mahout_install
+		;;
     upgrade)
-	mahout_upgrade
-	;;
+		mahout_upgrade
+		;;
     diff)
-	mahout_diff
-	;;
+		mahout_diff
+		;;
     slonik)
-	mahout_slonik
-	;;
+		mahout_slonik
+		;;
     slony_attach)
-	mahout_slony_attach ${PARM1}
-	;;
+		mahout_slony_attach ${PARM1}
+		;;
     history)
-	mahout_history
-	;;
+		mahout_history
+		;;
     changes)
-	mahout_changes
-	;;
+		mahout_changes
+		;;
     validate_control)
-	validate_control
-	;;
+		validate_control
+		;;
     build)
-	mahout_build ${PARM1} ${PARM2}
-	;;
+		mahout_build ${PARM1} ${PARM2}
+		;;
     *)
-	echo "Invalid subcommand - [${COMMAND}]"
-	help
-	exit 2
-	;;
+		echo "Invalid subcommand - [${COMMAND}]"
+		help
+		exit 2
+		;;
 esac
 
