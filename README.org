@@ -39,6 +39,12 @@ In contrast with them, Mahout
     someone has been messing around with database schemas, you will be
     made aware of this /before/ you get part of the way through
     deploying a set of schema changes and discover them breaking.
+  - Starts by /being paranoid/.  It assumes that it is necessary to
+    examine production schemas to ensure they are unmodified.  If it
+    discovers modifications, they are treated as /defects/ which must
+    be rectified before proceeding.  This prevents falling into the
+    problem that a hacked-up production schema is incompatible with
+    the upgrade scripts.
   - Eschews the (apparently from Ruby on Rails) dogma of requiring
     forwards-and-backwards migrations.  The assumption made by Mahout
     is that your system administrators will /arrange for backup/ to
@@ -74,7 +80,9 @@ expect the tool to be used:
          environments for unit tests, they will likely use these
          Mahout commands too.
   - Build Process :: Generation of build is done by automated processes
-    - mahout capture :: This generates authoritative logged information about by-version Schema information.
+    - mahout capture :: This generates authoritative logged
+                        information about by-version Schema
+                        information.
     - mahout build :: This provides a nice shortcut to generate an
                       archive file comprising the bundle of schema
                       information that needs to be carried downstream.
@@ -90,15 +98,24 @@ expect the tool to be used:
                      to represent.
     - mahout upgrade :: Runs, in order, the needful DDL scripts to
                         upgrade the schema to the latest version.
+    - mahout slony-attach :: Attaching mahout to an existing replication cluster
+    - mahout slonik :: Using Slony-I to apply the schema upgrade to a
+                       replication cluster
   - Production Control and/or Data Services :: Deploying changes to production
     - mahout attach :: Only needed if attaching Mahout to a previously
                        deployed database that predates Mahout.
-    - mahout check :: Verify that the production database is in good condition to be upgraded.
-    - mahout diff :: Analyzes the production database schema for differences against the development schema.
+    - mahout check :: Verify that the production database is in good
+                      condition to be upgraded.
+    - mahout diff :: Analyzes the production database schema for
+                     differences against the development schema.
     - mahout history :: List mahout activities against the production database
     - mahout upgrade :: Runs, in order, the needful DDL scripts to
                         upgrade the schema to the latest version.
-    - mahout slonik :: Prepares scripts for use with Slony-I
+    - mahout slony-attach :: Akin to ~mahout attach~, this attaches
+         Mahout to a database replicated using Slony-I, verifying that
+         all nodes have schemas matching the specified schema version.
+    - mahout slonik :: Prepares scripts for use with Slony-I to
+                       upgrade a replicated database cluster.
 
 ** Mahout subcommands
  - ~mahout init directoryname~ :: Checks that it is safe to do so (e.g. - no pre-existing config files)
@@ -114,28 +131,28 @@ expect the tool to be used:
    - make sure that scripts referenced are all present
    - make sure that requires all reference versions that are listed
    - look for version ordering loops using tsort
- - ~mahout capture~ :: This step is intended to capture ~.pgcmp~ files.
-      It does an install of a specified version, and captures the
-      schema into ~.pgcmp.version~.  
-
+ - ~mahout capture~ :: This step captures ~.pgcmp~ files to prepare
+      builds.  It does an install of a specified version of the
+      schema, and captures the schema into ~.pgcmp.version~.
    - It also captures checksums (via ~md5sum~) of the referenced
-     scripts so we may be certain they are up to date and that they
-     have not been altered.
-   - It captures ~.pgcmp~ files for /all/ versions that are
-     not captured
-   - It captures lists of locked objects for each ~psql~ and ~superuser~ script, thus:
+     scripts so administrators may be certain that the scripts remain
+     unaltered.
+   - It captures ~.pgcmp~ files for /all/ versions that have
+     not already been captured
+   - It captures lists of locked objects for each ~ddl~ script, thus:
      | schema | object name | Lock Acquired       |
      |--------+-------------+---------------------|
      | public | t1          | AccessExclusiveLock |
      | public | t3          | AccessShareLock     |
      | public | t3          | ShareLock           |
-     This information will be useful in determining how invasive an
-     upgrade will be to a live system.  Locks on tables newly
-     introduced in a particular version will obviously be irrelevant,
-     as a live system can't be referring to those tables until after
-     the upgrade is complete.
-     Look for files with the filename suffix ~.locks-acquired~
-   - This is likely to be invoked by developers, perhaps with some integration with build automation
+     This information will be useful to an administrator in
+     determining how invasive an upgrade will be to a live system.
+     Locks on tables newly introduced in a particular version will
+     obviously be irrelevant, as a live system can't be referring to
+     those tables until after the upgrade is complete.  But watch out
+     for files with the filename suffix ~.locks-acquired~
+   - This action is likely to be used mostly by developers, perhaps as
+     integrated with build automation
  - ~mahout install~ :: This is used to install a Mahout-managed schema
       in a fresh database.
    - This is how one would set up a fresh schema in a QA/production
@@ -143,9 +160,12 @@ expect the tool to be used:
  - ~mahout attach~ :: This is used to indicate that a particular
                      version should be associated with the present
                      schema
-   - This is how one would attach Mahout to an existing schema in production
-   - User specifies the version of the schema that they believe is in place
-   - Mahout checks that the schema matches the schema for the requested version
+   - This is the action to take to attach Mahout to an existing schema
+     in production
+   - The user specifies the version of the schema that they believe is
+     in place
+   - Mahout checks that the schema matches the schema against the
+     specified version
    - If all matches, then Mahout would attach its own metadata to enable future tracking
    - It captures expected differences for ~pgcmp~
  - ~mahout check~ :: Asks what version is in the schema indicated by
@@ -159,9 +179,10 @@ expect the tool to be used:
    - A ~dry-run~ option should list its plans in detail, providing a
      way that DBAs can know the exact intended application
      ordering of the pieces to assist them in building ~slonik~ scripts
- - ~mahout diff~ :: Finds any differences between current version and
-                   what is expected (e.g. - use ~pgcmp~ to compare
-                   current schema with a captured schema)
+ - ~mahout diff~ :: Finds any differences between the current version
+                    and what is expected to be in that version
+                    (/e.g./ - use ~pgcmp~ to compare current schema
+                    with a captured schema)
  - ~mahout history~ :: List ~mahout~ upgrade activities performed
       against the local database
  - ~mahout versions~ :: Walk configuration via ~tsort~ to get all
@@ -181,21 +202,32 @@ expect the tool to be used:
  - ~mahout build~ :: This takes the contents of the current Mahout
                      directory, and generates an archive containing
                      all of the data.
-   - It is essentially a way of avoiding the need to run ~tar cfvz schema-version.tar.gz~
- - ~mahout slonik~ :: This generates ~slonik~ scripts for use with
-                     Slony to perform the specified upgrade.
-   - It only works if the version upgrade(s) /only/ consist of ~ddl~,
-     ~dml~, ~ddl-autocommit~, and ~psqltest~ requests; it will /fail/
-     if there is a ~shell~ step.
+   - It is essentially a way of avoiding the need to run ~tar cfvz
+     schema-version.tar.gz~
+ - ~mahout slonik~ :: This generates and runs~slonik~ scripts for use
+      with Slony to perform the specified upgrade, stopping at the
+      specified version, if requested.
+   - It only works if the version upgrade(s) are either /only/ consist
+     of ~ddl~, ~ddl-autocommit~, and ~psqltest~ requests, or /only/ of
+     ~dml~ and ~unix~ requests; it will /fail/ if there are
+     combinations of DDL and DML together
    - It generates a slonik script with the following:
-     - a pre-amble reference to allow set IDs and connection paths to be defined by an administrator
-     - an EXECUTE SCRIPT request for each ~psql~ script, to apply DDL to the cluster
-     - a CREATE SET request, for the new tables and sequences that are added
-     - a SET ADD TABLE for each added table
-     - a SET ADD SEQUENCE for each added sequence
-     - a series of SUBSCRIBE SET requests based on those already existing so that all possible nodes will receive subscriptions to the new tables
-   - An alternative approach is to drop replication and recreate with the whole set of tables
-     But this requires little input, so seems sensible to leave to the user...
+     - a pre-amble reference to allow set IDs and connection paths to be customized by an administrator
+     - a ~SET DROP TABLE~ for each table removed
+     - a ~SET DROP SEQUENCE~ for each sequence removed
+     - an ~EXECUTE SCRIPT~ request for each ~psql~ script, to apply DDL to the cluster
+     - a ~CREATE SET~ request, for the new tables and sequences that are added
+     - a ~SET ADD TABLE~ for each added table
+     - a ~SET ADD SEQUENCE~ for each added sequence
+     - a series of ~SUBSCRIBE SET~ requests based on those already
+       existing so that all possible nodes will receive subscriptions
+       to the new tables
+     - a ~MERGE SET~ request so that the replication set with the
+       newly replicated tables is merged in with the main replication
+       set
+   - An alternative approach is to drop replication and recreate with
+     the whole set of tables.  But that requires little input, so
+     seems sensible to leave to the user...
 ** Mahout Directory Structure
 
   A schema repository will consist of a directory structure where the
@@ -206,16 +238,16 @@ expect the tool to be used:
   setting up a directory structure to group schema scripts together by
   version would be wise.
 
-  - Configuration control file: ~mahout.conf~
-
-    This file contains metadata about the databases to be managed.
+  - Configuration control file: ~mahout.conf~ ::     This file
+       contains metadata about the databases to be managed.
 
     Alternatively, ~MAHOUTCONFIG~ may be set to indicate an
     alternative location to find the configuration expected in
     ~mahout.conf~.
 
-  - Schema control: ~mahout.control~
-    This file indicates the order in which directories/files should be visited when applying schema changes.
+  - Schema control: ~mahout.control~ ::  This file indicates the order
+       in which directories/files should be processed when applying
+       schema changes.
 
   - If no ~mahout.control~ file is provided, at a given directory
     level, that will be treated as an error that would cause ~mahout~
@@ -228,7 +260,7 @@ expect the tool to be used:
     - SUPERUSERACCESS :: Contains the URI to be used for anything requiring superuser access
     - COMPARISONDATABASE :: This indicates the URI of a database suitable for doing comparisons using pgcmp
     - MAHOUTOMITSCHEMAS :: This indicates a set of schemas that are to be ignored when ~pgcmp~ is being used to do comparisons.
-      - It is formatted as an SQL IN clause, so should look like ('pg_catalog','information_schema','MaHoutSchema')
+      - It is formatted as an SQL IN clause, so should look like ('pg_catalog','information_schema','"MaHoutSchema"')
       - Note that ~mahout.conf~ is handled as a shell script, and, if using bash, quotes will be needed otherwise MAHOUTOMITSCHEMAS will interpret the structure as an array
     - PGCMPHOME :: Indicates the directory where the ~pgcmp~ comparison tool is installed
     - MAHOUTSCHEMA :: Indicates the schema in which to put Mahout version and logging information
@@ -236,7 +268,6 @@ expect the tool to be used:
     - In some cases, external data will be needed, /e.g./ - some
       upgrades required a data file indicating configuration of DML
       changes.
-
   Note that if ~MAHOUTCONFIG~ is set, then the file at the specified location will be used instead of the ~mahout.conf~ file in the Mahout archive.
 
 #+BEGIN_EXAMPLE
@@ -254,37 +285,98 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
 
 ** Contents of mahout.control
 
-  - It contains a series of versions, and references to the code to install the respective version
-    - The first version is called "Base", and has no predecessor
-    - Subsequent versions will indicate their respective predecessor
-  - For each file to be loaded there must be a line in ~mahout.control~ indicating processing steps, which include:
-    - ddl :: Indicating that the file contains SQL DDL and should be
-             processed using ~psql~ against MAINDATABASE.  It is an
-             error to perform DML in a ~ddl~ script, and /mahout/ may
-             check for this and report an error if data other than
-             schema is modified.
-    - ddl-autocommit :: Indicating that the file contains SQL DDL and
-                        should be processed using ~psql~ against
-                        MAINDATABASE.  Rather than the whole SQL
-                        script being run as a single transaction, this
-                        runs in autocommit mode, as is needed to
-                        create indexes concurrently.
-    - dml :: Indicating that the file contains SQL DML and should be
-             processed using ~psql~ against MAINDATABASE.  It is an
-             error to perform DDL in a ~dml~ script, and /mahout/ may
-             check for this and report an error if schema is modified.
-    - shell :: Indicating that the file should be run as a shell
-               script, with the values in ~mahout.conf~ loaded into
-               the environment.  It is strongly urged that ~shell~
-               only be used to handle DML changes, that is, to change
-               the data /inside/ tables, as opposed to doing DML
-               (table structure alterations).  ~shell~ commands are
-               not amenable to capturing ~.locks-acquired~ data, as
-               the script controls transaction management rather than
-               Mahout doing so.
+   The ~mahout.control~ file contains information indicating which
+   changes are associated with each version of the database schema.
+   It does not contain any database configuration, as that will vary
+   between development, QA, and production environments; that is
+   controlled in the ~mahout.conf~ file described previously.
+   Instead, it contains sections indicating /schema/ information and
+   how it ties to versions of that schema.
 
-  Complex example of ~mahout.control~ (that might resemble deployment
-  of schema for some particular application).
+   - Version dependency data :: The ~version~ and ~requires~
+        directives identify, for each version, the label for that
+        schema version, and what schema version is the prerequisite
+        that must be installed first.
+
+	The ~Base~ version is special, being the initial "Base"
+        version that has no prerequisite.
+
+   - Schema application directives :: For each file processed, there
+        is a line to indicate how it is to be processed.  These four
+        processing types are /mutually exclusive/ for any given
+        version; you may have as many of each in a version upgrade as
+        desired, but to switch to a different behaviour, you need
+        another version.
+     - ddl :: Indicating that the file contains SQL DDL and should be
+              processed using ~psql~ against MAINDATABASE.  It is an
+              error to perform DML in a ~ddl~ script, and ~mahout~
+              /may/ check for this and report an error if data other
+              than schema is modified.
+     - ddl-parallel :: Indicating that the file contains SQL DDL that
+                       should be processed using ~psql~ in parallel.
+                       Rather than the entire set of DDL script being
+                       run as a single transaction, this runs in a
+                       separate transaction, as is needed to create
+                       indexes concurrently.
+     - dml :: Indicating that the file contains SQL DML and should be
+              processed using ~psql~ against MAINDATABASE.  It is an
+              error to perform DDL in a ~dml~ script, and ~mahout~ /may/
+              check for this and report an error if schema is
+              modified.
+     - unix {parameter} :: Indicating that the file should be run as a
+          UNIX command, with the values in ~mahout.conf~ loaded into
+          the environment, and with data for ~{parameter}~ passed as
+          the singular argument to the command.  It is strongly urged
+          that ~unix~ only be used to handle DML changes, that is, to
+          change the data /inside/ tables, as opposed to doing DML
+          (table structure alterations).  ~unix~ commands are not
+          amenable to capturing ~.locks-acquired~ data.
+
+	  The ~parameter~ value indicates a single parameter to be
+          captured in the ~mahout.conf~ file and passed to the command
+          to indicate its configuration.  If complex configuration is
+          required, then the single parameter may point to a
+          configuration file containing as much configuration as
+          necessary.
+
+   - Testing directives :: SQL scripts may be used to perform tests to
+        verify that the schema satisfies computable requirements.
+     - common tests :: This defines a single section of the
+                       ~mahout.conf~ file to group together tests that
+                       are to be commonly applied across all versions
+                       of the schema (perhaps with per-version
+                       restrictions for particular tests).  That way,
+                       validations intended to apply organizational
+                       policies are automatically applied to every new
+                       version deployed, by default.
+
+		       Alternatively, tests may be attached to a
+                       particular schema version.
+
+		       If a particular test is only applicable to one
+                       version of the schema, then it should be
+                       associated with that version.  If a test
+                       represents common policy, then it should be
+                       associated via ~common tests~.
+     - psqltest :: This indicates a test that is to be run against
+                   every version of the schema.
+     - psqltest from [Version] :: This indicates a test to be run
+          against every version of the schema beginning with a
+          particular version.  In effect, that means that there is a
+          new requirement that will not be applied against "legacy"
+          schema versions.
+     - psqltest to [Version] :: This indicates a test that is to be
+          run against versions of the schema beginning with ~Base~,
+          and ending with the specified version.  In effect, this
+          indicates that there was some requirement that becomes
+          relaxed after the final indicated version.
+     - psqltest from [FirstVersion] to [SecondVersion] :: This
+          indicates a test that begins applicability with the first
+          version label indicated, and which ceases to be applicable
+          after the second version label.
+
+*** Example of mahout.control
+
 #+BEGIN_EXAMPLE
   # Note that Base is actually version 1.5; that was where we started...
   version Base
@@ -342,8 +434,8 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
     ddl 2.3y/app_private.sql
     ddl 2.3y/app.sql
     ddl 2.3y/devtools.sql
-    shell 2.3y/migration-currency.sh PF_CURRENCY_FILE=${CONFIG_23y}
-    shell 2.3y/migrate-pf-currency.sql
+    unix 2.3y/migration-currency.sh PF_CURRENCY_FILE=${CONFIG_23y}
+    unix 2.3y/migrate-pf-currency.sql
 
   version 2.3z
     requires 2.3y
@@ -364,7 +456,7 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
 
   version 2.6
     requires 2.5
-    shell 2.6/prepare-rapp-schema-upgrade.sh ${CONFIG_26}
+    unix 2.6/prepare-rapp-schema-upgrade.sh ${CONFIG_26}
 
   version 2.7
     requires 2.6
@@ -378,184 +470,22 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
     ddl 2.8/public.sql
 #+END_EXAMPLE
 
-** Logging to be done
- - Some output should be captured in files
- - Some data should be captured in tables in the database
-   - Version number information
-   - Schema Application Logs (akin to what Liquibase does), capturing, for each data file processed, the name of the file, and the timestamps of start/end of processing of each processing step.
-   - Note that the version will capture which ~mahout.control~ file was the one that established each version.
-   - It should capture ~md5sum~ checksums of the script files so that we can be certain that the latest scripts have been applied and carried around correctly
-** Managing Mahout Schema Management Code
-
-   Mahout does not assume anything about the use of version control
-   tools; it is quite likely someone managing a schema via Mahout will
-   wish to use an SCM tool such as Git or Subversion to manage the
-   code that comprises the build.
-
-*** Code that warrants version control
-   - Control file: ~mahout.control~
-   - Config file: ~mahout.conf~
-   - Content: All files referenced in ~mahout.control~ are likely
-     candidates for version control
-
-*** Generated files likely not warranting version control
-
-    Mahout generates content for various files that most likely should
-    not be put under version control:
-
-    - ~.mahout-data~ :: ~pgcmp~-generated encoding of schemas for each respective version
-    - ~.mahout-logs~ :: Logs generated by Mahout are probably not of interest
-    - ~.mahout-temp~ :: Temporary files are not of ongoing interest
-    - ~.md5sum~ files :: These are checksums of schema scripts,
-         intended to help detect tampering with a build.  They should
-         be carried along to production, but likely do not need to be
-         captured in version control.
-    - ~.version.log~ files :: These are captured as log files when
-         schema scripts are loaded or tests are performed against a
-         particular schema version.  They are not of interest for
-         version control
-    - ~.version.locks-acquired~ files :: These files indicate what
-         table locks are acquired when running a particular schema
-         upgrade script.  They will be of analytical interest in
-         determining the locking effects of a given upgrade, but, as
-         they are generated data, they are probably not of much
-         interest for version control.
-
-** Turning Mahout output into a build
-
-   The simplest answer for how to generate a build is most likely to
-   be to generate a "tarball" archive consisting of all of the files
-   and subdirectories under the directory containing the
-   ~mahout.control~ file.
-
-   Thus, for the schema managed by the scripts generated by the sample
-   in ~test/test-build-stuff.sh~, which are written to ~test/mhtest~,
-   it would be appropriate to generated a build as follows:
-
-#+BEGIN_EXAMPLE
-$ tar cfv mhtest-latest.tar mhtest
-mhtest/
-mhtest/Base/
-mhtest/Base/base-schema.sql.md5sum
-mhtest/Base/base-schema.sql
-mhtest/mahout.conf
-mhtest/common-tests/
-mhtest/common-tests/pk-test.sql.md5sum
-mhtest/common-tests/multiply-defined.sql.1.4.log
-mhtest/common-tests/pk-test.sql.1.4.log
-mhtest/common-tests/multiply-defined.sql
-mhtest/common-tests/failing-test.sql.1.4.log
-mhtest/common-tests/pk-test.sql
-mhtest/common-tests/null-test.sql.1.1.log
-mhtest/common-tests/multiply-defined.sql.1.3.log
-mhtest/common-tests/pk-test.sql.1.2.log
-mhtest/common-tests/failing-test.sql.md5sum
-mhtest/common-tests/pk-test.sql.1.1.log
-mhtest/common-tests/null-test.sql.md5sum
-mhtest/common-tests/null-test.sql
-mhtest/common-tests/failing-test.sql
-mhtest/common-tests/null-test.sql.1.3.log
-mhtest/common-tests/multiply-defined.sql.1.1.log
-mhtest/common-tests/multiply-defined.sql.md5sum
-mhtest/common-tests/pk-test.sql.1.3.log
-mhtest/common-tests/null-test.sql.1.2.log
-mhtest/common-tests/multiply-defined.sql.1.2.log
-mhtest/1.4/
-mhtest/1.4/stuff.sql
-mhtest/1.4/stuff.sql.1.4.log
-mhtest/1.4/stuff.sql.md5sum
-mhtest/1.4/stuff.sql.1.4.locks-acquired
-mhtest/mahout.control
-mhtest/.mahout-logs/
-mhtest/.mahout-logs/mahout.log
-mhtest/.mahout-data/
-mhtest/.mahout-data/1.2.pgcmp
-mhtest/.mahout-data/1.3.pgcmp
-mhtest/.mahout-data/1.4.pgcmp
-mhtest/.mahout-data/Base.pgcmp
-mhtest/.mahout-data/1.1.pgcmp
-mhtest/.mahout-temp/
-mhtest/.mahout-temp/capturedb.pgcmp
-mhtest/.mahout-temp/setup-mahout-schema.log
-mhtest/.mahout-temp/setup-mahout-schema.sql
-mhtest/1.1/
-mhtest/1.1/stuff.sql
-mhtest/1.1/stuff.sql.md5sum
-mhtest/1.1/stuff.sql.1.1.locks-acquired
-mhtest/1.1/stuff.sql.1.1.log
-mhtest/1.3/
-mhtest/1.3/stuff.sql
-mhtest/1.3/stuff.sql.md5sum
-mhtest/1.3/stuff.sql.1.3.locks-acquired
-mhtest/1.3/stuff.sql.1.3.log
-mhtest/1.2/
-mhtest/1.2/stuff.sql.1.2.log
-mhtest/1.2/stuff.sql
-mhtest/1.2/stuff.sql.md5sum
-mhtest/1.2/stuff.sql.1.2.locks-acquired
-#+END_EXAMPLE
-
-The resulting build file, ~mhtest-latest.tar~, may be carried to other
-environments, and used, once extracted, to install the schema.
-
-Various sorts of files were discussed earlier in relation to SCM
-version control; covering them in terms of their needfulness for
-deploying schemas:
-
- - Control file :: ~mahout.control~
- - Config file :: ~mahout.conf~
-   - Note that when deploying the schema into a production
-     environment, ~mahout.conf~ will need to be altered to indicate
-     configuration in the production environment, as the locations of
-     directories and databases are quite likely to differ from
-     development or QA environments.
- - Content :: Files referenced in ~mahout.control~ need to be
-              included.  Test scripts /could/ be considered optional,
-              as tests might not be applied in the production
-              environment, however, little is to be gained from their
-              removal.
- - Encoded schemas - ~.mahout-data~ :: Must be included to allow
-      testing that the target database starts with a compatible
-      schema.
- - Log files - ~.mahout-logs~ :: Logs generated by Mahout are probably not of interest
- - Temp files - ~.mahout-temp~ :: Temporary files are not of ongoing interest
- - Checkums - ~.md5sum~ files :: The checksum files are needed, as they protect against tampering with a build.
- - Version log ~.version.log~ files :: Probably not of much interest
- - Lock ~.version.locks-acquired~ files :: These files indicate which
-      table locks are acquired when running a particular schema
-      upgrade script.  They will be of analytical/documentary interest
-      in determining the locking effects of a given upgrade.
-
-** Prerequisites
-
-   What do you need to have available in order to run mahout?
-
-   - bash :: Mahout is written in Bash
-   - PostgreSQL :: A reasonably modern version; probably 9.3 is modern enough.
-     - psql :: SQL is run using ~psql~
-     - pg_dump :: Schema dump for the "Base" version is captured using ~pg_dump~
-   - logger :: Logger is used to capture logs centrally
-   - date :: Captures dates
-   - pgcmp :: Mahout uses ~pgcmp~ to compare schema versions in order
-              to ensure that schemas are not corrupted in
-              transmission.
-   - md5sum :: Used to detect if schema scripts have been modified/corrupted in transmission
-     - Note that we are not doing anything "cryptographically strong"
-       with this; it would be easy enough for someone trying to defeat
-       the checksums to simply replace them, and that would be
-       impractical to prevent.
-   - String tools
-     - cut
-     - sed
-     - egrep
-     - cat
-   - tsort :: Used to do a topological sort to determine the ordering
-              that falls from version dependencies.
-   
-** Open questions
- - Can we/should we try to capture ~slonik~ ~SET ADD TABLE~ requests
-   by peeking at the application of DDL?
-
+*** Slony Specific Parameters
+    If running Mahout against a Slony cluster, additional configuration is required:
+    - SLONYCLUSTER :: This has the name of the Slony Cluster, which is
+                      what, with a prepended underscore, becomes the
+                      schema name used for Slony's internal
+                      configuration.
+    - SLONYMAINSET :: This is the ID of the replication set into which
+                      things should be merged after all tables and
+                      sequences have been added to replication.
+    - SLONYTEMPSET :: This is the ID of a (not-presently-existing)
+                      replication set that is to be used for tables
+                      and sequences that need to be added.
+    - SLONYOMITTABLES :: This is a set of tables that should be
+         omitted from replication, represented as a SQL ~IN~ clause.
+    - SLONYOMITSEQUENCES :: This is a set of sequences that should
+         be omitted from replication
 ** Things Mahout does not itself do that we do today in Registry Universal Schema
 
 These things need to be covered somewhere.
@@ -567,9 +497,9 @@ There is a fairly sophisticated permissions model constructed out of:
  - Schema-based (e.g. - granting same permissions for a whole
    "directory" of objects) for other roles
 
-Perhaps this no longer needs to be covered by specific "permissions
+This does not need to be covered by specific "permissions
 provisioning" tools; having regression tests that verify that
-permissions have been provisioned will be sufficient.
+permissions /have been provisioned/ will be sufficient.
 
 *** Testing schema for various conditions
 
@@ -581,6 +511,9 @@ cover these sorts of requirements.
     - Verify that all functions, tables, columns are commented
     - Verify that all tables have primary keys
     - Verify that table names are unique
+    - Verify that tables are owned by a suitable user
+      - Ideally, this should /not/ be the user under which ~mahout~
+        runs, so that we're not merely getting defaults.
   - Unit tests
     - Grandfathering
     - Message queueing
