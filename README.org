@@ -80,7 +80,9 @@ expect the tool to be used:
          environments for unit tests, they will likely use these
          Mahout commands too.
   - Build Process :: Generation of build is done by automated processes
-    - mahout capture :: This generates authoritative logged information about by-version Schema information.
+    - mahout capture :: This generates authoritative logged
+                        information about by-version Schema
+                        information.
     - mahout build :: This provides a nice shortcut to generate an
                       archive file comprising the bundle of schema
                       information that needs to be carried downstream.
@@ -96,11 +98,16 @@ expect the tool to be used:
                      to represent.
     - mahout upgrade :: Runs, in order, the needful DDL scripts to
                         upgrade the schema to the latest version.
+    - mahout slony-attach :: Attaching mahout to an existing replication cluster
+    - mahout slonik :: Using Slony-I to apply the schema upgrade to a
+                       replication cluster
   - Production Control and/or Data Services :: Deploying changes to production
     - mahout attach :: Only needed if attaching Mahout to a previously
                        deployed database that predates Mahout.
-    - mahout check :: Verify that the production database is in good condition to be upgraded.
-    - mahout diff :: Analyzes the production database schema for differences against the development schema.
+    - mahout check :: Verify that the production database is in good
+                      condition to be upgraded.
+    - mahout diff :: Analyzes the production database schema for
+                     differences against the development schema.
     - mahout history :: List mahout activities against the production database
     - mahout upgrade :: Runs, in order, the needful DDL scripts to
                         upgrade the schema to the latest version.
@@ -124,28 +131,28 @@ expect the tool to be used:
    - make sure that scripts referenced are all present
    - make sure that requires all reference versions that are listed
    - look for version ordering loops using tsort
- - ~mahout capture~ :: This step is intended to capture ~.pgcmp~ files.
-      It does an install of a specified version, and captures the
-      schema into ~.pgcmp.version~.  
-
+ - ~mahout capture~ :: This step captures ~.pgcmp~ files to prepare
+      builds.  It does an install of a specified version of the
+      schema, and captures the schema into ~.pgcmp.version~.
    - It also captures checksums (via ~md5sum~) of the referenced
-     scripts so we may be certain they are up to date and that they
-     have not been altered.
-   - It captures ~.pgcmp~ files for /all/ versions that are
-     not captured
+     scripts so administrators may be certain that the scripts remain
+     unaltered.
+   - It captures ~.pgcmp~ files for /all/ versions that have
+     not already been captured
    - It captures lists of locked objects for each ~ddl~ script, thus:
      | schema | object name | Lock Acquired       |
      |--------+-------------+---------------------|
      | public | t1          | AccessExclusiveLock |
      | public | t3          | AccessShareLock     |
      | public | t3          | ShareLock           |
-     This information will be useful in determining how invasive an
-     upgrade will be to a live system.  Locks on tables newly
-     introduced in a particular version will obviously be irrelevant,
-     as a live system can't be referring to those tables until after
-     the upgrade is complete.
-     Look for files with the filename suffix ~.locks-acquired~
-   - This is likely to be invoked by developers, perhaps with some integration with build automation
+     This information will be useful to an administrator in
+     determining how invasive an upgrade will be to a live system.
+     Locks on tables newly introduced in a particular version will
+     obviously be irrelevant, as a live system can't be referring to
+     those tables until after the upgrade is complete.  But watch out
+     for files with the filename suffix ~.locks-acquired~
+   - This action is likely to be used mostly by developers, perhaps as
+     integrated with build automation
  - ~mahout install~ :: This is used to install a Mahout-managed schema
       in a fresh database.
    - This is how one would set up a fresh schema in a QA/production
@@ -153,9 +160,12 @@ expect the tool to be used:
  - ~mahout attach~ :: This is used to indicate that a particular
                      version should be associated with the present
                      schema
-   - This is how one would attach Mahout to an existing schema in production
-   - User specifies the version of the schema that they believe is in place
-   - Mahout checks that the schema matches the schema for the requested version
+   - This is the action to take to attach Mahout to an existing schema
+     in production
+   - The user specifies the version of the schema that they believe is
+     in place
+   - Mahout checks that the schema matches the schema against the
+     specified version
    - If all matches, then Mahout would attach its own metadata to enable future tracking
    - It captures expected differences for ~pgcmp~
  - ~mahout check~ :: Asks what version is in the schema indicated by
@@ -169,9 +179,10 @@ expect the tool to be used:
    - A ~dry-run~ option should list its plans in detail, providing a
      way that DBAs can know the exact intended application
      ordering of the pieces to assist them in building ~slonik~ scripts
- - ~mahout diff~ :: Finds any differences between current version and
-                   what is expected (e.g. - use ~pgcmp~ to compare
-                   current schema with a captured schema)
+ - ~mahout diff~ :: Finds any differences between the current version
+                    and what is expected to be in that version
+                    (/e.g./ - use ~pgcmp~ to compare current schema
+                    with a captured schema)
  - ~mahout history~ :: List ~mahout~ upgrade activities performed
       against the local database
  - ~mahout versions~ :: Walk configuration via ~tsort~ to get all
@@ -191,23 +202,32 @@ expect the tool to be used:
  - ~mahout build~ :: This takes the contents of the current Mahout
                      directory, and generates an archive containing
                      all of the data.
-   - It is essentially a way of avoiding the need to run ~tar cfvz schema-version.tar.gz~
- - ~mahout slonik~ :: This generates ~slonik~ scripts for use with
-      Slony to perform the specified upgrade, stopping at specified
-      version, if requested.
+   - It is essentially a way of avoiding the need to run ~tar cfvz
+     schema-version.tar.gz~
+ - ~mahout slonik~ :: This generates and runs~slonik~ scripts for use
+      with Slony to perform the specified upgrade, stopping at the
+      specified version, if requested.
    - It only works if the version upgrade(s) are either /only/ consist
      of ~ddl~, ~ddl-autocommit~, and ~psqltest~ requests, or /only/ of
      ~dml~ and ~unix~ requests; it will /fail/ if there are
      combinations of DDL and DML together
    - It generates a slonik script with the following:
      - a pre-amble reference to allow set IDs and connection paths to be customized by an administrator
-     - an EXECUTE SCRIPT request for each ~psql~ script, to apply DDL to the cluster
-     - a CREATE SET request, for the new tables and sequences that are added
-     - a SET ADD TABLE for each added table
-     - a SET ADD SEQUENCE for each added sequence
-     - a series of SUBSCRIBE SET requests based on those already existing so that all possible nodes will receive subscriptions to the new tables
-   - An alternative approach is to drop replication and recreate with the whole set of tables
-     But this requires little input, so seems sensible to leave to the user...
+     - a ~SET DROP TABLE~ for each table removed
+     - a ~SET DROP SEQUENCE~ for each sequence removed
+     - an ~EXECUTE SCRIPT~ request for each ~psql~ script, to apply DDL to the cluster
+     - a ~CREATE SET~ request, for the new tables and sequences that are added
+     - a ~SET ADD TABLE~ for each added table
+     - a ~SET ADD SEQUENCE~ for each added sequence
+     - a series of ~SUBSCRIBE SET~ requests based on those already
+       existing so that all possible nodes will receive subscriptions
+       to the new tables
+     - a ~MERGE SET~ request so that the replication set with the
+       newly replicated tables is merged in with the main replication
+       set
+   - An alternative approach is to drop replication and recreate with
+     the whole set of tables.  But that requires little input, so
+     seems sensible to leave to the user...
 ** Mahout Directory Structure
 
   A schema repository will consist of a directory structure where the
@@ -477,9 +497,9 @@ There is a fairly sophisticated permissions model constructed out of:
  - Schema-based (e.g. - granting same permissions for a whole
    "directory" of objects) for other roles
 
-Perhaps this does not need to be covered by specific "permissions
+This does not need to be covered by specific "permissions
 provisioning" tools; having regression tests that verify that
-permissions have been provisioned will be sufficient.
+permissions /have been provisioned/ will be sufficient.
 
 *** Testing schema for various conditions
 
@@ -491,6 +511,9 @@ cover these sorts of requirements.
     - Verify that all functions, tables, columns are commented
     - Verify that all tables have primary keys
     - Verify that table names are unique
+    - Verify that tables are owned by a suitable user
+      - Ideally, this should /not/ be the user under which ~mahout~
+        runs, so that we're not merely getting defaults.
   - Unit tests
     - Grandfathering
     - Message queueing
