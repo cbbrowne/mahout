@@ -411,8 +411,6 @@ echo "
    alter table t3 add column deleted_on timestamptz;
    create index t3_deleted on t3(deleted_on) where (deleted_on is not null);
 
-   create table primary_keyless (id serial);
-
 " > ${PROJECTNAME}/1.3/stuff.sql
 
 glog user.notice "mahout capture on v1.3"
@@ -423,7 +421,6 @@ echo "
 version 1.4
 requires 1.3
 ddl 1.4/stuff.sql
-psqltest common-tests/failing-test.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
