@@ -7,6 +7,7 @@ DBCLUSTER=${DBCLUSTER:-"postgresql://postgres@localhost:7099"}
 MAHOUTHOME=${MAHOUTHOME:-${HOME}/PostgreSQL/mahout}
 TARGETDIR=${TARGETDIR:-"install-target"}
 MAHOUTLOGDIR=${MAHOUTLOG:-"/tmp/mahout-tests"}
+PGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-HEAD/bin"}
 
 PROJECTNAME=mhslonytest
 TARGETMHDIR=install-target/${PROJECTNAME}
@@ -145,7 +146,7 @@ store node (id=6, comment='Node for mahout test', event node=1);
 " > $initnodes
 
 glog user.notice "Initialize Slony cluster, including creating nodes"
-slonik $initnodes
+$PGBINDIR/slonik $initnodes
 
 #  Store paths
 storepaths=${slonydir}/storepaths.slonik
@@ -167,12 +168,12 @@ for nodeinfo in origin:1 rep2:2 rep3:3 rep4:4: rep5:5 rep6:6; do
 done
 
 glog user.notice "Store connection paths for Slony"
-slonik $storepaths
+$PGBINDIR/slonik $storepaths
 
 # Launch slons
 for i in 1 2 3 4 5 6; do
     glog user.notice "Launch slon daemon for node $i"
-    slon -f ${slonydir}/slon.conf.${i} &
+    $PGBINDIR/slon -f ${slonydir}/slon.conf.${i} &
 done
 
 # Subscribe set for set 1, with the one table, nullschema.wee_table
@@ -194,7 +195,7 @@ wait for event (origin=all, confirmed=all, wait on=1);
 " > $initset
 
 glog user.notice "Subscribe all nodes to simple set"
-slonik $initset
+$PGBINDIR/slonik $initset
 
 # Set up a schema in devdb, and use mahout to extract buildable schemas
 devdb=devdb
@@ -223,10 +224,10 @@ fi
 glog user.notice "Check availability of pgcmp"
 if [ -d ${PGCMPHOME} ]; then
     if [ -x ${PGCMPHOME}/pgcmp ]; then
-	glog user.notice "Ready to run pgcmp as ${PGCMPHOME}/pgcmp"
+		glog user.notice "Ready to run pgcmp as ${PGCMPHOME}/pgcmp"
     else
-	glog user.error "pgcmp not executable as ${PGCMPHOME}/pgcmp"
-	exit 1
+		glog user.error "pgcmp not executable as ${PGCMPHOME}/pgcmp"
+		exit 1
     fi
 else
     glog user.error "No such directory: ${PGCMPHOME}"
@@ -236,10 +237,10 @@ fi
 glog user.notice "Check availability of mahout"
 if [ -d ${MAHOUTHOME} ]; then
     if [ -x ${MAHOUTHOME}/mahout ]; then
-	glog user.notice "Ready to run mahout as ${MAHOUTHOME}/mahout"
+		glog user.notice "Ready to run mahout as ${MAHOUTHOME}/mahout"
     else
-	glog user.error "mahout not executable as ${MAHOUTHOME}/mahout"
-	exit 1
+		glog user.error "mahout not executable as ${MAHOUTHOME}/mahout"
+		exit 1
     fi
 else
     glog user.error "No such directory: ${MAHOUTHOME}"
