@@ -159,9 +159,6 @@ function mahout_init () {
     echo "*.locks-acquired" >> ${GITIGNORE}
     echo "*.log" >> ${GITIGNORE}
 
-    if [ "${MSU}" == "${MDB}" ]; then
-		glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Superuser connection (SUPERUSERACCESS=[${MSU}]"
-    fi
     if [ "${MCL}" == "${MDB}" ]; then
 		glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Comparison connection (COMPARISONDATABASE=[${MCL}]"
     fi

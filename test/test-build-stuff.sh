@@ -3,7 +3,7 @@
 set -e -u
 
 # Let's set up a database and put some schema into it as a Base Schema
-REGUSER=${REGUSER:-"cbbrowne"}
+REGUSER=${REGUSER:-"postgres"}
 SUPERUSER=${SUPERUSER:-"postgres"}
 PGCMPHOME=${PGCMPHOME:-${HOME}/PostgreSQL/pgcmp}
 DBCLUSTER=${DBCLUSTER:-"postgresql://${REGUSER}@localhost:7099"}
