@@ -307,6 +307,8 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
         version; you may have as many of each in a version upgrade as
         desired, but to switch to a different behaviour, you need
         another version.
+     - notes :: Indicates a file containing Markdown input that are to
+                be transformed into HTML as notes about the version.
      - ddl :: Indicating that the file contains SQL DDL and should be
               processed using ~psql~ against MAINDATABASE.  It is an
               error to perform DML in a ~ddl~ script, and ~mahout~
@@ -350,14 +352,16 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
                        policies are automatically applied to every new
                        version deployed, by default.
 
-		       Alternatively, tests may be attached to a
-                       particular schema version.
+					   Alternatively, tests may be attached to a particular
+                       schema version.
 
-		       If a particular test is only applicable to one
+					   If a particular test is only applicable to one
                        version of the schema, then it should be
                        associated with that version.  If a test
-                       represents common policy, then it should be
-                       associated via ~common tests~.
+                       represents common policy, to be run against
+                       several versions, then it should be associated
+                       via ~common tests~, so that it only needs to be
+                       referenced /once/.
      - psqltest :: This indicates a test that is to be run against
                    every version of the schema.
      - psqltest from [Version] :: This indicates a test to be run
@@ -492,14 +496,16 @@ These things need to be covered somewhere.
 
 *** Permissions Provisioning
 
-There is a fairly sophisticated permissions model constructed out of:
- - Matrix of detailed permissions for Registry-services-managed roles
- - Schema-based (e.g. - granting same permissions for a whole
-   "directory" of objects) for other roles
+	The Afilias Universal Schema hs a fairly sophisticated permissions
+	model constructed out of:
+    - Matrix of detailed permissions for Registry-Services-managed
+      roles
+	- Schema-based (e.g. - granting same permissions for a whole
+	  "directory" of objects) for other roles
 
-This does not need to be covered by specific "permissions
-provisioning" tools; having regression tests that verify that
-permissions /have been provisioned/ will be sufficient.
+	This does not need to be covered by specific "permissions
+	provisioning" tools; having regression tests that verify that
+	permissions /have been provisioned/ should suffice.
 
 *** Testing schema for various conditions
 
@@ -512,8 +518,8 @@ cover these sorts of requirements.
     - Verify that all tables have primary keys
     - Verify that table names are unique
     - Verify that tables are owned by a suitable user
-      - Ideally, this should /not/ be the user under which ~mahout~
-        runs, so that we're not merely getting defaults.
+      - Ideally, this should /not/ be the database user under which
+        ~mahout~ runs, so that we're not merely getting defaults.
   - Unit tests
     - Grandfathering
     - Message queueing
@@ -524,7 +530,7 @@ cover these sorts of requirements.
 
 *** Automatically generating documentation
 
-We presently automatically generate documentation using
+Some documentation is automatically generated using:
   - Schema Spy
   - PostgreSQL autodoc
 
