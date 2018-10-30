@@ -11,7 +11,7 @@ SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@localhost:7099"}
 MAHOUTHOME=${MAHOUTHOME:-${HOME}/PostgreSQL/mahout}
 TARGETDIR=${TARGETDIR:-"install-target"}
 MAHOUTLOGDIR=${MAHOUTLOG:-"/tmp/mahout-tests"}
-PGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-HEAD/bin"}}
+PGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-HEAD/bin"}
 
 PROJECTNAME=mhtest
 TARGETMHDIR=install-target/${PROJECTNAME}
