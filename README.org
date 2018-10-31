@@ -314,12 +314,6 @@ CONFIG_22=/tmp/registrar-guid-map-2.2.csv
               error to perform DML in a ~ddl~ script, and ~mahout~
               /may/ check for this and report an error if data other
               than schema is modified.
-     - ddl-parallel :: Indicating that the file contains SQL DDL that
-                       should be processed using ~psql~ in parallel.
-                       Rather than the entire set of DDL script being
-                       run as a single transaction, this runs in a
-                       separate transaction, as is needed to create
-                       indexes concurrently.
      - dml :: Indicating that the file contains SQL DML and should be
               processed using ~psql~ against MAINDATABASE.  It is an
               error to perform DDL in a ~dml~ script, and ~mahout~ /may/

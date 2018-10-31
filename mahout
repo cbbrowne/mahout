@@ -342,7 +342,7 @@ function validate_control () {
 		cut -d \# -f 1 < ${CTL} > ${dropcomments}
 		sed "s/^[ \t]*//" < ${dropcomments} | sed "s/[ \t]*$//" | sed "s/  / /g" > ${dropwhitespace}
 		
-		egrep -n -v "^(version|ddl|ddl-parallel|dml|common tests|psqltest|requires|unix)[ ]*" ${dropwhitespace} | egrep -v "^[0-9]+:$" > ${badlines}
+		egrep -n -v "^(version|ddl|dml|common tests|psqltest|requires|unix)[ ]*" ${dropwhitespace} | egrep -v "^[0-9]+:$" > ${badlines}
 		NUMBAD=`cat ${badlines} | wc -l`
 		if [[ ${NUMBAD} -gt 0 ]]; then
 			glog user.error "Found ${NUMBAD} ill-formatted lines"
@@ -411,7 +411,7 @@ function validate_control () {
 		local versionorder=$PWD/.mahout-temp/mahout-ctl-check-versionorder
 		calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
 		
-		# check that there isn't a mix of DDL/DML/DDL-parallel/unix in the same version
+		# check that there isn't a mix of DDL/DML/unix in the same version
 		glog user.info "Check for mix of actions within a version"
 		
 		cversion=""
@@ -432,7 +432,6 @@ function validate_control () {
 					fi
 					gotddl=0
 					gotdml=0
-					gotddlp=0
 					gotunix=0
 					cversion=`echo $line | cut -d ' ' -f 2`
 					;;
@@ -442,16 +441,13 @@ function validate_control () {
 				dml)
 					gotdml=1
 					;;
-				ddl-parallel)
-					gotddlp=1
-					;;
 				unix)
 					gotunix=1
 					;;
 			esac
 		done < ${dropwhitespace}
 		# And check the end...
-		gottotal=$(( $gotddl + $gotdml + $gotddlp + $gotunix ))
+		gottotal=$(( $gotddl + $gotdml + $gotunix ))
 		if [ $gottotal -gt 1 ]; then
 			glog user.error "version $cversion has multiple processing types"
 		fi
@@ -717,18 +713,58 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 						local dmlscript=`echo ${line} | cut -d " " -f 2`
 						local dmlarg=`echo ${line} | cut -d " " -f 3`
 						cat ${dmlscript} | md5sum > ${dmlscript}.md5sum
+						local predmlcmp=`mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX`
+						local postdmlcmp=`mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX`
+						# Make sure that DML does not modify the schema
+						action_start ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}"
+						dump_current_schema pre-dml $predmlcmp ${MAINDATABASE}
 						
-						action_start ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}"			
 						$PGBINDIR/psql -d ${MAINDATABASE} -f ${dmlscript} ${!dmlarg} > ./${dmlscript}.${propversion}.log 2>&1
+						dump_current_schema post-dml $postdmlcmp ${MAINDATABASE}
+						PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${predmlcmp} PGCMPINPUT2=${postdmlcmp} PGCLABEL1=pre-dml PGCLABEL2=post-dml ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+						rc=$?
+						case $rc in
+							0)
+								glog user.notice "pgcmp completed, no DDL in DML script, OK"
+								;;
+							2)
+								glog user.error "Unable to run pgcmp comparison"
+								exit 1
+								;;
+							3)
+								glog user.error "pgcmp completed, DML script included some DDL"
+								exit 1
+								;;
+						esac
 						action_end ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}" t
+						rm $predmlcmp $postdmlcmp
 					fi
 					if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
 						local unixcommand=`echo ${line} | cut -d " " -f 2`
 						local unixarg=`echo ${line} | cut -d " " -f 3`
+						local preunixcmp=`mktemp /tmp/mahout-capture-pre-unix.XXXXXXXXXXXXXXXX`
+						local postunixcmp=`mktemp /tmp/mahout-capture-pre-unix.XXXXXXXXXXXXXXXX`
 						cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
-						
-						action_start ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}"			
+						action_start ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}"
+						dump_current_schema pre-unix ${MAINDATABASE}
 						MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ./${unixcommand}.${propversion}.log 2>&1
+						dump_current_schema post-unix ${MAINDATABASE}
+						PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${preunixcmp} PGCMPINPUT2=${postunixcmp} PGCLABEL1=pre-unix PGCLABEL2=post-unix ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+						rc=$?
+						case $rc in
+							0)
+								glog user.notice "pgcmp completed, no DDL in UNIX script, OK"
+								;;
+							2)
+								glog user.error "Unable to run pgcmp comparison"
+								exit 1
+								;;
+							3)
+								glog user.error "pgcmp completed, UNIX script included some DDL"
+								exit 1
+								;;
+						esac
+						rm $preunixcmp $postunixcmp
 						action_end ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}" t
 					fi
 					if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
@@ -887,7 +923,7 @@ function mahout_check () {
 		sed "s/[ \t]*$//" | \
 		sed "s/[\t]/ /g" | \
 		sed "s/  / /g"           > ${sanswhitecomments}
-    egrep -n "^(ddl|ddl-parallel|dml|unix|psqltest|common tests)[ \t]*" ${sanswhitecomments} > ${allscripts}
+    egrep -n "^(ddl|dml|unix|psqltest|common tests)[ \t]*" ${sanswhitecomments} > ${allscripts}
     while read line
     do
 		lineno=`echo ${line} | cut -d : -f 1`
@@ -1022,6 +1058,23 @@ function mahout_upgrade () {
 							action_end ${propversion} "upgrade" "DDL script" "${sqlscript}" "${md5sum}" t
 						fi
 					fi
+					if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
+						local sqlscript=`echo ${line} | cut -d " " -f 2`
+						glog user.notice "apply DML Script ${sqlscript}"
+						md5sum=`md5sum < ${sqlscript}`
+						cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
+						action_start $propversion upgrade "DML script" ${sqlscript} "${md5sum}"
+						$PGBINDIR/psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+						retcode=$?
+						if [ $retcode -ne 0 ]; then
+							glog user.error "DML script ${sqlscript} failed against database [${MDB}]"
+							action_end ${propversion} "upgrade" "DML script" "${sqlscript}" "${md5sum}" f
+							exit 1
+						else
+							action_end ${propversion} "upgrade" "DML script" "${sqlscript}" "${md5sum}" t
+						fi
+					fi
+
 					if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
 						local unixcommand=`echo ${line} | cut -d " " -f 2`
 						local unixarg=`echo ${line} | cut -d " " -f 3`
@@ -1137,22 +1190,6 @@ function mahout_install () {
 					exit 1
 				else
 					action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" t
-				fi
-			fi
-			if [[ $(echo ${line} | egrep -c "^ddl-parallel ") -eq 1 ]]; then
-				local sqlscript=`echo ${line} | cut -d " " -f 2`
-				glog user.notice "apply DDL parallel script  ${sqlscript}"
-				md5sum=`md5sum < ${sqlscript}`
-				cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-				action_start $propversion capture "DDL parallel script" ${sqlscript} "${md5sum}"
-				$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} > ${sqlscript}.${propversion}.log 2>&1
-				retcode=$?
-				if [ $retcode -ne 0 ]; then
-					glog user.error "DDL parallel script ${sqlscript} failed against database [${MDB}]"
-					action_end ${propversion} "capture" "DDL parallel script" "${sqlscript}" "${md5sum}" f
-					exit 1
-				else
-					action_end ${propversion} "capture" "DDL parallel script" "${sqlscript}" "${md5sum}" t
 				fi
 			fi
 			if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
@@ -1692,9 +1729,6 @@ function mahout_slony_attach () {
 ###         - run against origin node
 ###       - for unix:
 ###         - run against origin node
-###       - for ddl-parallel:
-###         - run against each node
-###         - in parallel
 
 function mahout_slonik () {
     # starts similarly to mahout_upgrade, checking hygiene
