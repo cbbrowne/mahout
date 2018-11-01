@@ -1,7 +1,8 @@
 * Mahout Schema Manager
 
   What is Mahout?  Mahout is a /schema manager/ intended to ease the
-  process of deploying database schema changes for PostgreSQL.
+  process of automating the deployment of database schema changes for
+  PostgreSQL.
 
   Deploying schema changes may be very simple if you are merely
   managing a "personal" database where it is reasonable to deploy
@@ -54,15 +55,16 @@ In contrast with them, Mahout
 
 ** Derivation of the name Mahout
 
-Mahout is the Hindi word for "elephant keeper;" as the PostgreSQL
-project uses an elephant as its "visual mascot," it seems appropriate
-to use "mahout" to describe a tool that helps keep database schemas
-under control.
+   Mahout is the Hindi word for "elephant keeper;" since the
+   PostgreSQL project uses an elephant as its visual mascot, it seems
+   appropriate to use the term "mahout" to describe a tool that helps
+   keep database schemas under control.
 
-Also considered was Pahan, which is the equivalent word in Tamil.
-There appears to be some record of "mahout" being used as a
-perjorative involving cab drivers on Long Island near New York City,
-but that's sufficiently separate as to be not relevant.
+   Also considered was Pahan, which is the equivalent word in Tamil.
+   There appears to be some record of "mahout" being used as a
+   perjorative involving cab drivers on Long Island near New York
+   City, but that seems sufficiently separate and distant as to be not
+   relevant.
 
 ** Use Cases
 
@@ -75,7 +77,9 @@ expect the tool to be used:
     - Later changes are made by adding SQL DDL scripts and control
       file entries to indicate how the DDL scripts are assembled to
       indicate how to upgrade from version to version.
-    - If automated build management tools like QuickBuild, Jenkins, Maven are used to manage the deployment of builds, this may be all that developers do themselves.
+    - If automated build management tools like QuickBuild, Jenkins,
+      Maven are used to manage the deployment of builds, this may be
+      all that developers do themselves.
     - mahout install, mahout upgrade :: When developers prepare test
          environments for unit tests, they will likely use these
          Mahout commands too.
@@ -101,7 +105,7 @@ expect the tool to be used:
     - mahout slony-attach :: Attaching mahout to an existing replication cluster
     - mahout slonik :: Using Slony-I to apply the schema upgrade to a
                        replication cluster
-  - Production Control and/or Data Services :: Deploying changes to production
+  - Production Control :: Deploying changes to production
     - mahout attach :: Only needed if attaching Mahout to a previously
                        deployed database that predates Mahout.
     - mahout check :: Verify that the production database is in good
@@ -114,9 +118,9 @@ expect the tool to be used:
     - mahout slony-attach :: Akin to ~mahout attach~, this attaches
          Mahout to a database replicated using Slony-I, verifying that
          all nodes have schemas matching the specified schema version.
-    - mahout slonik :: Prepares scripts for use with Slony-I to
-                       upgrade a replicated database cluster.
-
+    - mahout slonik :: Prepares and runs scripts for use with Slony-I
+                       to upgrade a replicated database cluster.
+		       
 ** Mahout subcommands
  - ~mahout init directoryname~ :: Checks that it is safe to do so (e.g. - no pre-existing config files)
    - creates the directory afresh
