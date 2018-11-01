@@ -369,7 +369,7 @@ glog user.notice "do upgrade of the install instance to run v1.1"
 cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
 # And try to install the upgrade
-(cd ${TARGETMHDIR}; ${MAHOUT} slonik)
+(cd ${TARGETMHDIR}; ${MAHOUT} slonik; ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.1.slonik)
 
 echo "
 
@@ -396,7 +396,7 @@ glog user.notice "do upgrade of the install instance to run v1.2"
 cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
 
-(cd ${TARGETMHDIR}; ${MAHOUT} slonik)
+(cd ${TARGETMHDIR}; ${MAHOUT} slonik; ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.2.slonik)
 
 echo "
 
@@ -415,7 +415,7 @@ echo "
 " > ${PROJECTNAME}/1.3/stuff.sql
 
 glog user.notice "mahout capture on v1.3"
-(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz)
+(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz; ${MAHOUT} slonik ; ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.3.slonik)
 
 echo "
 
@@ -442,7 +442,7 @@ glog user.notice "mahout capture on v1.4"
 glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
 cp -r ${PROJECTNAME} ${TARGETDIR}
 fix_install_uri
-(cd ${TARGETMHDIR}; ${MAHOUT} slonik)
+(cd ${TARGETMHDIR}; ${MAHOUT} slonik; ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.4.slonik))
 
 glog user.notice "Completed upgrade to v1.4"
 

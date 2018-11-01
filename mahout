@@ -40,7 +40,7 @@ mahout commands:
     to the specified version.  Fail if any of the schemas does not match
     that version.
  mahout slonik
-    Prepares a slonik script to upgrade replicated cluster to the latest/specified version
+    Prepares a slonik script to upgrade replicated cluster to the latest/specified version.
  validate_control
     Runs validation tests on the mahout.control file
 "
