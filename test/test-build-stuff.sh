@@ -166,7 +166,7 @@ declare
 begin
    c_found := 'f';
    for prec in select nspname, relname from pg_class c, pg_namespace n where n.oid = c.relnamespace and (nspname not like 'pg_%' and nspname not in ('information_schema')) and not relhaspkey and relkind = 'r' loop
-	raise notice 'table without primary key: "%"."%"', prec.nspname, prec.relname;
+	raise warning 'table without primary key: "%"."%"', prec.nspname, prec.relname;
 	c_found := 't';
   end loop;
   if c_found then
@@ -190,7 +190,7 @@ begin
 
   for prec in select table_name, count(1) as count from information_schema.tables where table_schema not in ('pg_catalog', 'information_schema') group by table_name having count(1) > 1 loop
 	c_found := 't';
-	raise notice 'relation % found % times', prec.table_name, prec.count;
+	raise warning 'relation % found % times', prec.table_name, prec.count;
   end loop;
 
   if c_found then
@@ -295,9 +295,30 @@ echo "
 
 " > ${PROJECTNAME}/1.3/stuff.sql
 
-glog user.notice "mahout capture on v1.3"
-(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz)
+glog user.notice "mahout capture on v1.3 - expecting error"
+pushd ${PROJECTNAME}
+${MAHOUT} capture
+rc=$?
+if [ $rc -eq 0 ]; then
+     glog user.error "capture succeeded, it should have failed"
+else
+    glog user.notice "capture of busted v1.3 failed as expected"
+fi
+popd
 
+# Now, repair the table definitions, which was the problem
+echo "
+   alter table t3 add column deleted_on timestamptz;
+   create index t3_deleted on t3(deleted_on) where (deleted_on is not null);
+" > ${PROJECTNAME}/1.3/stuff.sql
+
+# Expect the build to go well
+(cd ${PROJECTNAME}
+ ${MAHOUT} capture
+ ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz
+)
+
+# Preparing for expected failure
 cp ${PROJECTNAME}/mahout.control ${PROJECTNAME}/mahout.control-expect-failure 
 
 echo "
@@ -325,7 +346,8 @@ glog user.notice "Attempt capture on bad v1.4, this is expected to fail"
 
 (
     cd ${PROJECTNAME}
-    MAHOUTCONFIG=${PROJECTNAME}/mahout.control-expect-failure ${MAHOUT} capture
+    MC=${PROJECTNAME}/mahout.control-expect-failure
+    MAHOUTCONFIG=${MC} ${MAHOUT} capture
     rc=$?
     if [ $rc -eq 0 ]; then
 	glog user.error "capture succeeded, it should have failed"

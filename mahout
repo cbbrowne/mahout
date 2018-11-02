@@ -607,7 +607,7 @@ function mahout_capture () {
     
     # acquire configuration from mahout.conf
     read_mahout_config
-    glog user.info "Applying changes to database MAINDATABASE=[${MAINDATABASE}]"
+    glog user.info "Applying changes based on MAHOUTCONFIG=[${MAHOUTCONFIG}] to database MAINDATABASE=[${MAINDATABASE}]"
 
     # check the version in the database
     local DBVERSION=`get_mahout_version "${MAINDATABASE}"`
@@ -863,8 +863,9 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 				glog user.notice "running common SQL test script ${testscript}"
 				md5sum=`md5sum < ${testscript}`
 				echo ${md5sum} > ${testscript}.md5sum
+				tslog=${testscript}.${propversion}.log
 				action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
-				$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${testscript} --single-transaction > ${testscript}.${propversion}.log 2>&1
+				$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${testscript} --single-transaction > $tslog 2>&1
 				retcode=$?
 				if [ $retcode -eq 0 ]; then
 				    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" t
@@ -872,6 +873,7 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 				else
 				    glog user.error "test script ${testscript} failed against database [${MAINDATABASE}]"
 				    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" f
+				    glog user.notice "test script ${testscript} generated log file [${tslog}] - review for error conditions"
 				    exit 1
 				fi
 			    else
