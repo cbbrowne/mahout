@@ -4,7 +4,7 @@ SUBCOMMAND=$1
 PARM1=$2
 PARM2=$3
 
-MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS:-${PGCOMITSCHEMAS:-"('pg_catalog','information_schema','\"${MAHOUTSCHEMA}\"')"}}
+MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS:-${PGCOMITSCHEMAS:-"('pg_catalog','information_schema', quote_ident('${MAHOUTSCHEMA}'))"}}
 PGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-HEAD/bin"}
 
 help () {
@@ -601,8 +601,8 @@ function mahout_capture () {
     
     INMAHOUT=`in_mahout_home`
     if [[ ${INMAHOUT} != 0 ]]; then
-		glog user.error "capture: not in mahout directory - ${INMAHOUT}"
-		exit 1
+	glog user.error "capture: not in mahout directory - ${INMAHOUT}"
+	exit 1
     fi
     
     # acquire configuration from mahout.conf
@@ -622,23 +622,25 @@ function mahout_capture () {
     # we should compare against the pgcmp dump
     local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
     if [ -e ${VERSIONDUMP} ]; then
-		glog user.info "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
-		PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
-		rc=$?
-		case $rc in
-			2)
-				glog user.error "Unable to run pgcmp comparison"
-				;;
-			3)
-				glog user.error "pgcmp ran, some items did not match between database and version ${DBVERSION}"
-				;;
-			0)
-				glog user.notice "pgcmp completed, all matched - rc=${rc}"
-				;;
-		esac
-    else
-		glog user.error "Failed to find pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
+	glog user.info "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
+	PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+	rc=$?
+	case $rc in
+	    2)
+		glog user.error "Unable to run pgcmp comparison"
 		exit 1
+		;;
+	    3)
+		glog user.error "pgcmp ran, some items did not match between database and version ${DBVERSION}"
+		exit 1
+		;;
+	    0)
+		glog user.notice "pgcmp completed, all matched - rc=${rc}"
+		;;
+	esac
+    else
+	glog user.error "Failed to find pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
+	exit 1
     fi
     
     local depfodder=$PWD/.mahout-temp/mahout-capture-dependency-fodder
@@ -654,236 +656,238 @@ function mahout_capture () {
     local TEMPSQLFILE=$PWD/.mahout-temp/mahout-capture-sql-application
     versionswanted=false
     for propversion in `cat ${versionorder}`; do
-		if [[ $propversion == ${DBVERSION} ]]; then
-			# We have reached the point at which versions should get captured
-			versionswanted=true
-			glog user.notice "Capture examining versions to apply - already have ${propversion}"
-		else
-			if [[ $versionswanted == "true" ]]; then
-				# need to apply scripts to the database
-				glog user.notice "Capture needs to apply version ${propversion} from ${versioncontent}/${propversion}"
-				version_load_start ${propversion}
+	if [[ $propversion == ${DBVERSION} ]]; then
+	    # We have reached the point at which versions should get captured
+	    versionswanted=true
+	    glog user.notice "Capture examining versions to apply - already have ${propversion}"
+	else
+	    if [[ $versionswanted == "true" ]]; then
+		# need to apply scripts to the database
+		glog user.notice "Capture needs to apply version ${propversion} from ${versioncontent}/${propversion}"
+		version_load_start ${propversion}
 
-				while read line
-				do
-					if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
-						glog user.debug "no action apropos for version line"
-					fi
-					if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
-  						glog user.debug "no action apropos for requires line"
-					fi
-					if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
-						local sqlscript=`echo ${line} | cut -d " " -f 2`
-						glog user.notice "apply DDL Script ${sqlscript}"
-						md5sum=`md5sum < ${sqlscript}`
-						cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-						action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
-						echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
-						cat ${sqlscript} >> ${TEMPSQLFILE}
-						rc=$?
-						case $rc in
-							0)
-								glog user.debug "constructed ${sqlscript} into ${TEMPSQLFILE} ok"
-								;;
-							1)
-								glog user.error "DDL script ${sqlscript} not found"
-								exit 2
-								;;
-							*)
-								glog user.error "Error adding in DDL script ${sqlscript} - rc=[${rc}]"
-								exit 3
-								;;
-						esac				
-						echo "create temp table t_ending_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';
+		while read line
+		do
+		    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
+			glog user.debug "no action apropos for version line"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
+  			glog user.debug "no action apropos for requires line"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
+			local sqlscript=`echo ${line} | cut -d " " -f 2`
+			glog user.notice "apply DDL Script ${sqlscript}"
+			md5sum=`md5sum < ${sqlscript}`
+			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
+			action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
+			echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
+			cat ${sqlscript} >> ${TEMPSQLFILE}
+			rc=$?
+			case $rc in
+			    0)
+				glog user.debug "constructed ${sqlscript} into ${TEMPSQLFILE} ok"
+				;;
+			    1)
+				glog user.error "DDL script ${sqlscript} not found"
+				exit 2
+				;;
+			    *)
+				glog user.error "Error adding in DDL script ${sqlscript} - rc=[${rc}]"
+				exit 3
+				;;
+			esac				
+			echo "create temp table t_ending_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';
 create temp table t_locks_acquired as select nspname, relname, mode from t_ending_locks e where not exists (select 1 from t_starting_locks s where s.nspname = e.nspname and s.relname = e.relname and s.mode = e.mode);
 " >> ${TEMPSQLFILE}
-						echo "\COPY (select nspname, relname, mode from t_locks_acquired) to '${sqlscript}.${propversion}.locks-acquired';" >> ${TEMPSQLFILE}
-						$PGBINDIR/psql -d ${MAINDATABASE} -f ${TEMPSQLFILE} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-						retcode=$?
-						if [ $retcode -ne 0 ]; then
-							glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
-							action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" f
-							exit 1
-						else
-							action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" t
-							rm ${TEMPSQLFILE}
-						fi
-					fi
-					if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
-						local dmlscript=`echo ${line} | cut -d " " -f 2`
-						local dmlarg=`echo ${line} | cut -d " " -f 3`
-						cat ${dmlscript} | md5sum > ${dmlscript}.md5sum
-						local predmlcmp=`mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX`
-						local postdmlcmp=`mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX`
-						# Make sure that DML does not modify the schema
-						action_start ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}"
-						dump_current_schema pre-dml $predmlcmp ${MAINDATABASE}
-						
-						$PGBINDIR/psql -d ${MAINDATABASE} -f ${dmlscript} ${!dmlarg} > ./${dmlscript}.${propversion}.log 2>&1
-						dump_current_schema post-dml $postdmlcmp ${MAINDATABASE}
-						PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${predmlcmp} PGCMPINPUT2=${postdmlcmp} PGCLABEL1=pre-dml PGCLABEL2=post-dml ${PGCMPHOME}/pgcmp > /dev/null 2>&1
-						rc=$?
-						case $rc in
-							0)
-								glog user.notice "pgcmp completed, no DDL in DML script, OK"
-								;;
-							2)
-								glog user.error "Unable to run pgcmp comparison"
-								exit 1
-								;;
-							3)
-								glog user.error "pgcmp completed, DML script included some DDL"
-								exit 1
-								;;
-						esac
-						action_end ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}" t
-						rm $predmlcmp $postdmlcmp
-					fi
-					if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
-						local unixcommand=`echo ${line} | cut -d " " -f 2`
-						local unixarg=`echo ${line} | cut -d " " -f 3`
-						local preunixcmp=`mktemp /tmp/mahout-capture-pre-unix.XXXXXXXXXXXXXXXX`
-						local postunixcmp=`mktemp /tmp/mahout-capture-pre-unix.XXXXXXXXXXXXXXXX`
-						cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
-						action_start ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}"
-						dump_current_schema pre-unix ${MAINDATABASE}
-						MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ./${unixcommand}.${propversion}.log 2>&1
-						dump_current_schema post-unix ${MAINDATABASE}
-						PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${preunixcmp} PGCMPINPUT2=${postunixcmp} PGCLABEL1=pre-unix PGCLABEL2=post-unix ${PGCMPHOME}/pgcmp > /dev/null 2>&1
-						rc=$?
-						case $rc in
-							0)
-								glog user.notice "pgcmp completed, no DDL in UNIX script, OK"
-								;;
-							2)
-								glog user.error "Unable to run pgcmp comparison"
-								exit 1
-								;;
-							3)
-								glog user.error "pgcmp completed, UNIX script included some DDL"
-								exit 1
-								;;
-						esac
-						rm $preunixcmp $postunixcmp
-						action_end ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}" t
-					fi
-					if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
-						local testscript=`echo ${line} | cut -d " " -f 2`
-						echo "apply SQL test script ${testscript}"
-						md5sum=`md5sum < ${testscript}`
-						echo ${md5sum} > ${testscript}.md5sum
-						action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
-						$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${testscript} --single-transaction > ${testscript}.${propversion}.log 2>&1
-						retcode=$?
-						if [ $retcode -eq 0 ]; then
-							action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" t
-						else
-							glog user.error "test script ${testscript} failed against database [${MAINDATABASE}]"
-							action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" f			
-						fi
-					fi
-					if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
-						glog user.debug "no action apropos for common tests in capture"
-					fi
-					glog user.debug "line of ${propversion}: ${line}"
-				done < ${versioncontent}/${propversion}
-
-				# Apply new version to it...
-				version_load_end ${propversion}
-
-				# Run common tests
-				if [ -f ${versioncontent}/CommonTests ]; then
-					glog user.debug "Checking which CommonTests to run"
-					while read line
-					do
-						local vfrom=Base
-						local vto=`tail -1 ${versionorder}`
-						local testscript
-						glog user.debug "common test check for line ${line}"
-						## Most specific... # psqltest from v1 to v2 testname
-						if [ $(echo ${line} | egrep -c "^psqltest from [a-zA-Z0-9.]+ to [a-zA-Z0-9.]+") -eq 1 ]; then
-							# split out psql from v1 to v2 testname
-							vfrom=`echo ${line} | cut -d " " -f 3`
-							vto=`echo ${line} | cut -d " " -f 5`
-							testscript=`echo ${line} | cut -d " " -f 6`
-							glog user.debug "test [${testscript}] is run from [${vfrom}] to [${vto}]"
-						else
-							if [ $(echo ${line} | egrep -c "^psqltest from [a-zA-Z0-9.]+") -eq 1 ]; then
-								vfrom=`echo ${line} | cut -d " " -f 3`
-								testscript=`echo ${line} | cut -d " " -f 4`
-								glog user.debug "test [${testscript}] is run from [${vfrom}]"
-							else
-								if [ $(echo ${line} | egrep -c "^psqltest [a-zA-Z0-9.]+") -eq 1 ]; then
-									testscript=`echo ${line} | cut -d " " -f 2`
-									glog user.debug "Always run test [${testscript}]"
-								else
-									glog user.debug "No test on line ${line}"
-									testscript=""
-								fi
-							fi
-						fi
-						if [ "${testscript}" != "" ]; then
-							glog user.debug "common test [${testscript}] to be run from [${vfrom}] to [${vto}]"
-							# now, iterate across the versions in ${versionorder} and see if
-							# the present version ${propversion} is within the range
-							local ver_in_range=false
-							local reached_ver=false
-							local reached_from=false
-							local reached_to=false
-							local past_to=false
-							for vi in `cat ${versionorder}`; do
-								if [ ${vi} == ${propversion} ]; then
-									reached_ver=true
-								fi
-								if [ ${vi} == ${vfrom} ]; then
-									reached_from=true
-								fi
-								if [ ${vi} == ${vto} ]; then
-									reached_to=true
-								fi
-								if [ $reached_to == true ]; then
-									if [ $vi != ${vto} ]; then
-										past_to=true
-									fi
-								fi
-								# if present version is within the range then...
-								# - reached_ver = true
-								# - past_to = false
-								if [ $reached_ver == "true" ]; then
-									if [ $past_to == "false" ]; then
-										ver_in_range=true
-									fi
-								fi
-								glog user.debug "vi:${vi} cversion: ${propversion}  from:${vfrom} to:${vto} reached_ver:${reached_ver} ver_in_range:${ver_in_range} reached_from:${reached_from} reached_to:${reached_to} past_to:${past_to}"
-							done
-							if [ $ver_in_range == "true" ]; then
-								glog user.notice "running common SQL test script ${testscript}"
-								md5sum=`md5sum < ${testscript}`
-								echo ${md5sum} > ${testscript}.md5sum
-								action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
-								$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${testscript} --single-transaction > ${testscript}.${propversion}.log 2>&1
-								retcode=$?
-								if [ $retcode -eq 0 ]; then
-									action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" t
-									
-								else
-									glog user.error "test script ${testscript} failed against database [${MAINDATABASE}]"
-									action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" f			
-								fi
-							else
-								glog user.notice "Not running common test ${testscript} - version [${propversion}] not in range ([${vfrom}],[${vto}])"
-							fi
-						fi
-					done < ${versioncontent}/CommonTests
-				fi
-				
-				# then run pgcmp-dump to get the version
-				VERSIONOUTPUT=${PWD}/.mahout-data/${propversion}.pgcmp
-				dump_current_schema ${propversion} ${VERSIONOUTPUT} ${MAINDATABASE}
-   			else
-				glog user.debug "Capture not applying earlier version ${propversion}"
+			echo "\COPY (select nspname, relname, mode from t_locks_acquired) to '${sqlscript}.${propversion}.locks-acquired';" >> ${TEMPSQLFILE}
+			$PGBINDIR/psql -d ${MAINDATABASE} -f ${TEMPSQLFILE} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			retcode=$?
+			if [ $retcode -ne 0 ]; then
+			    glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
+			    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" f
+			    exit 1
+			else
+			    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" t
+			    rm ${TEMPSQLFILE}
 			fi
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
+			local dmlscript=`echo ${line} | cut -d " " -f 2`
+			local dmlarg=`echo ${line} | cut -d " " -f 3`
+			cat ${dmlscript} | md5sum > ${dmlscript}.md5sum
+			local predmlcmp=`mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX`
+			local postdmlcmp=`mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX`
+			# Make sure that DML does not modify the schema
+			action_start ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}"
+			dump_current_schema pre-dml $predmlcmp ${MAINDATABASE}
+			
+			$PGBINDIR/psql -d ${MAINDATABASE} -f ${dmlscript} ${!dmlarg} > ./${dmlscript}.${propversion}.log 2>&1
+			dump_current_schema post-dml $postdmlcmp ${MAINDATABASE}
+			PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${predmlcmp} PGCMPINPUT2=${postdmlcmp} PGCLABEL1=pre-dml PGCLABEL2=post-dml ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+			rc=$?
+			case $rc in
+			    0)
+				glog user.notice "pgcmp completed, no DDL in DML script, OK"
+				;;
+			    2)
+				glog user.error "Unable to run pgcmp comparison"
+				exit 1
+				;;
+			    3)
+				glog user.error "pgcmp completed, DML script included some DDL"
+				exit 1
+				;;
+			esac
+			action_end ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}" t
+			rm $predmlcmp $postdmlcmp
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
+			local unixcommand=`echo ${line} | cut -d " " -f 2`
+			local unixarg=`echo ${line} | cut -d " " -f 3`
+			local preunixcmp=`mktemp /tmp/mahout-capture-pre-unix.XXXXXXXXXXXXXXXX`
+			local postunixcmp=`mktemp /tmp/mahout-capture-pre-unix.XXXXXXXXXXXXXXXX`
+			cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
+			action_start ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}"
+			dump_current_schema pre-unix ${MAINDATABASE}
+			MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ./${unixcommand}.${propversion}.log 2>&1
+			dump_current_schema post-unix ${MAINDATABASE}
+			PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${preunixcmp} PGCMPINPUT2=${postunixcmp} PGCLABEL1=pre-unix PGCLABEL2=post-unix ${PGCMPHOME}/pgcmp > /dev/null 2>&1
+			rc=$?
+			case $rc in
+			    0)
+				glog user.notice "pgcmp completed, no DDL in UNIX script, OK"
+				;;
+			    2)
+				glog user.error "Unable to run pgcmp comparison"
+				exit 1
+				;;
+			    3)
+				glog user.error "pgcmp completed, UNIX script included some DDL"
+				exit 1
+				;;
+			esac
+			rm $preunixcmp $postunixcmp
+			action_end ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}" t
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
+			local testscript=`echo ${line} | cut -d " " -f 2`
+			echo "apply SQL test script ${testscript}"
+			md5sum=`md5sum < ${testscript}`
+			echo ${md5sum} > ${testscript}.md5sum
+			action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
+			$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${testscript} --single-transaction > ${testscript}.${propversion}.log 2>&1
+			retcode=$?
+			if [ $retcode -eq 0 ]; then
+			    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" t
+			else
+			    glog user.error "test script ${testscript} failed against database [${MAINDATABASE}]"
+			    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" f
+			    exit 1
+			fi
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
+			glog user.debug "no action apropos for common tests in capture"
+		    fi
+		    glog user.debug "line of ${propversion}: ${line}"
+		done < ${versioncontent}/${propversion}
+
+		# Apply new version to it...
+		version_load_end ${propversion}
+
+		# Run common tests
+		if [ -f ${versioncontent}/CommonTests ]; then
+		    glog user.debug "Checking which CommonTests to run"
+		    while read line
+		    do
+			local vfrom=Base
+			local vto=`tail -1 ${versionorder}`
+			local testscript
+			glog user.debug "common test check for line ${line}"
+			## Most specific... # psqltest from v1 to v2 testname
+			if [ $(echo ${line} | egrep -c "^psqltest from [a-zA-Z0-9.]+ to [a-zA-Z0-9.]+") -eq 1 ]; then
+			    # split out psql from v1 to v2 testname
+			    vfrom=`echo ${line} | cut -d " " -f 3`
+			    vto=`echo ${line} | cut -d " " -f 5`
+			    testscript=`echo ${line} | cut -d " " -f 6`
+			    glog user.debug "test [${testscript}] is run from [${vfrom}] to [${vto}]"
+			else
+			    if [ $(echo ${line} | egrep -c "^psqltest from [a-zA-Z0-9.]+") -eq 1 ]; then
+				vfrom=`echo ${line} | cut -d " " -f 3`
+				testscript=`echo ${line} | cut -d " " -f 4`
+				glog user.debug "test [${testscript}] is run from [${vfrom}]"
+			    else
+				if [ $(echo ${line} | egrep -c "^psqltest [a-zA-Z0-9.]+") -eq 1 ]; then
+				    testscript=`echo ${line} | cut -d " " -f 2`
+				    glog user.debug "Always run test [${testscript}]"
+				else
+				    glog user.debug "No test on line ${line}"
+				    testscript=""
+				fi
+			    fi
+			fi
+			if [ "${testscript}" != "" ]; then
+			    glog user.debug "common test [${testscript}] to be run from [${vfrom}] to [${vto}]"
+			    # now, iterate across the versions in ${versionorder} and see if
+			    # the present version ${propversion} is within the range
+			    local ver_in_range=false
+			    local reached_ver=false
+			    local reached_from=false
+			    local reached_to=false
+			    local past_to=false
+			    for vi in `cat ${versionorder}`; do
+				if [ ${vi} == ${propversion} ]; then
+				    reached_ver=true
+				fi
+				if [ ${vi} == ${vfrom} ]; then
+				    reached_from=true
+				fi
+				if [ ${vi} == ${vto} ]; then
+				    reached_to=true
+				fi
+				if [ $reached_to == true ]; then
+				    if [ $vi != ${vto} ]; then
+					past_to=true
+				    fi
+				fi
+				# if present version is within the range then...
+				# - reached_ver = true
+				# - past_to = false
+				if [ $reached_ver == "true" ]; then
+				    if [ $past_to == "false" ]; then
+					ver_in_range=true
+				    fi
+				fi
+				glog user.debug "vi:${vi} cversion: ${propversion}  from:${vfrom} to:${vto} reached_ver:${reached_ver} ver_in_range:${ver_in_range} reached_from:${reached_from} reached_to:${reached_to} past_to:${past_to}"
+			    done
+			    if [ $ver_in_range == "true" ]; then
+				glog user.notice "running common SQL test script ${testscript}"
+				md5sum=`md5sum < ${testscript}`
+				echo ${md5sum} > ${testscript}.md5sum
+				action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
+				$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${testscript} --single-transaction > ${testscript}.${propversion}.log 2>&1
+				retcode=$?
+				if [ $retcode -eq 0 ]; then
+				    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" t
+				    
+				else
+				    glog user.error "test script ${testscript} failed against database [${MAINDATABASE}]"
+				    action_end ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}" f
+				    exit 1
+				fi
+			    else
+				glog user.notice "Not running common test ${testscript} - version [${propversion}] not in range ([${vfrom}],[${vto}])"
+			    fi
+			fi
+		    done < ${versioncontent}/CommonTests
 		fi
+		
+		# then run pgcmp-dump to get the version
+		VERSIONOUTPUT=${PWD}/.mahout-data/${propversion}.pgcmp
+		dump_current_schema ${propversion} ${VERSIONOUTPUT} ${MAINDATABASE}
+   	    else
+		glog user.debug "Capture not applying earlier version ${propversion}"
+	    fi
+	fi
     done		
     rm -f ${depfodder} ${dependencies} ${versionorder}
     rm -rf ${versioncontent}

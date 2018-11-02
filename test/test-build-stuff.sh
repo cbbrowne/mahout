@@ -298,6 +298,8 @@ echo "
 glog user.notice "mahout capture on v1.3"
 (cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz)
 
+cp ${PROJECTNAME}/mahout.control ${PROJECTNAME}/mahout.control-expect-failure 
+
 echo "
 
 version 1.4
@@ -305,7 +307,7 @@ requires 1.3
 ddl 1.4/stuff.sql
 psqltest common-tests/failing-test.sql
 
-" >> ${PROJECTNAME}/mahout.control
+" >> ${PROJECTNAME}/mahout.control-expect-failure
 
 echo "
 select 1/0;
@@ -318,8 +320,29 @@ echo "
    alter table t3 add column updated_on timestamptz default now();
 " > ${PROJECTNAME}/1.4/stuff.sql
 
-glog user.notice "mahout capture on v1.4"
-(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.4 tar.gz)
+glog user.notice "Attempt capture on bad v1.4, this is expected to fail"
+
+
+(
+    cd ${PROJECTNAME}
+    MAHOUTCONFIG=${PROJECTNAME}/mahout.control-expect-failure ${MAHOUT} capture
+    rc=$?
+    if [ $rc -eq 0 ]; then
+	glog user.error "capture succeeded, it should have failed"
+	exit 1
+    fi
+)
+
+# Now, redo version 1.4, without the failing bits
+rm common-tests/failing-test.sql
+echo "
+
+version 1.4
+requires 1.3
+ddl 1.4/stuff.sql
+
+" >> ${PROJECTNAME}/mahout.control
+
 
 glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
 cp -r ${PROJECTNAME} ${TARGETDIR}
