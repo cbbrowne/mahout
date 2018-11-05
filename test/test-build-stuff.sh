@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e -u
+set -u
 
 # Let's set up a database and put some schema into it as a Base Schema
 REGUSER=${REGUSER:-"postgres"}
@@ -85,80 +85,92 @@ function glog () {
     fi
 }
 
+function drop_and_recreate_databases () {
+    # Drop databases and then create them
+    for i in ${devdb} ${comparisondb} ${installdb} ${proddb}; do
+	glog user.info "Drop and recreate database ${i} on cluster ${clusterdb}"
+	psql -d ${clusterdb} \
+	     -c "drop database if exists ${i};"
+	psql -d ${clusterdb} \
+             -c "create database ${i};"
+    done
+}
 
-# Drop databases and then create them
-for i in ${devdb} ${comparisondb} ${installdb} ${proddb}; do
-    glog user.info "Drop and recreate database ${i} on cluster ${clusterdb}"
-    psql -d ${clusterdb} \
-	 -c "drop database if exists ${i};"
-    psql -d ${clusterdb} \
-         -c "create database ${i};"
-done
+function initialize_schema () {
+    glog user.notice "Set up a simple schema in database $devdb"
 
-glog user.notice "Set up a simple schema in database $devdb"
-
-psql -d ${devuri} -c "
+    psql -d ${devuri} -c "
   create table if not exists t1 (id serial primary key, name text not null unique, created_on timestamptz default now());
   create schema if not exists subschema;
   create table if not exists subschema.t2 (id serial primary key, name text not null unique, created_on timestamptz default now());
 "
 
-glog user.notice "Purge away ./${PROJECTNAME}"
-if [ -d ./${PROJECTNAME} ]; then
-    rm -rf ./${PROJECTNAME}
-else
-    if [ -e ./${PROJECTNAME} ]; then
-	glog user.error "projectname directory [./${PROJECTNAME}] exists and is not a directory"
-	exit 2
-    fi
-fi
+}
 
-glog user.notice "Check availability of pgcmp"
-if [ -d ${PGCMPHOME} ]; then
-    if [ -x ${PGCMPHOME}/pgcmp ]; then
-	glog user.notice "Ready to run pgcmp as ${PGCMPHOME}/pgcmp"
+function purge_mahout_and_check_reqts () {
+    glog user.notice "Purge away ./${PROJECTNAME}"
+    if [ -d ./${PROJECTNAME} ]; then
+	rm -rf ./${PROJECTNAME}
     else
-	glog user.error "pgcmp not executable as ${PGCMPHOME}/pgcmp"
+	if [ -e ./${PROJECTNAME} ]; then
+	    glog user.error "projectname directory [./${PROJECTNAME}] exists and is not a directory"
+	    exit 2
+	fi
+    fi
+
+    glog user.notice "Check availability of pgcmp"
+    if [ -d ${PGCMPHOME} ]; then
+	if [ -x ${PGCMPHOME}/pgcmp ]; then
+	    glog user.notice "Ready to run pgcmp as ${PGCMPHOME}/pgcmp"
+	else
+	    glog user.error "pgcmp not executable as ${PGCMPHOME}/pgcmp"
+	    exit 1
+	fi
+    else
+	glog user.error "No such directory: ${PGCMPHOME}"
 	exit 1
     fi
-else
-    glog user.error "No such directory: ${PGCMPHOME}"
-    exit 1
-fi
 
-glog user.notice "Check availability of mahout"
-if [ -d ${MAHOUTHOME} ]; then
-    if [ -x ${MAHOUTHOME}/mahout ]; then
-	glog user.notice "Ready to run mahout as ${MAHOUTHOME}/mahout"
+    glog user.notice "Check availability of mahout"
+    if [ -d ${MAHOUTHOME} ]; then
+	if [ -x ${MAHOUTHOME}/mahout ]; then
+	    glog user.notice "Ready to run mahout as ${MAHOUTHOME}/mahout"
+	else
+	    glog user.error "mahout not executable as ${MAHOUTHOME}/mahout"
+	    exit 1
+	fi
     else
-	glog user.error "mahout not executable as ${MAHOUTHOME}/mahout"
+	glog user.error "No such directory: ${MAHOUTHOME}"
 	exit 1
     fi
-else
-    glog user.error "No such directory: ${MAHOUTHOME}"
-    exit 1
-fi
 
-glog user.notice "Do mahout init to capture that base schema"
+}
 
-MAHOUTSCHEMA=MaHoutSchema PGCMPHOME=${PGCMPHOME} MAINDATABASE=${devuri} SUPERUSERACCESS=${SUPERCLUSTER}/${devdb} COMPARISONDATABASE=${compuri} ${MAHOUT} init ${PROJECTNAME}
+function mahout_init () {
+    glog user.notice "Do mahout init to capture that base schema"
 
-glog user.notice "Do mahout capture without introducing any changes; expect no change"
-# Run mahout capture, without any change
-(cd ${PROJECTNAME}; ${MAHOUT} capture)
+    MAHOUTSCHEMA=MaHoutSchema PGCMPHOME=${PGCMPHOME} MAINDATABASE=${devuri} SUPERUSERACCESS=${SUPERCLUSTER}/${devdb} COMPARISONDATABASE=${compuri} ${MAHOUT} init ${PROJECTNAME}
+}
 
-glog user.notice "Add a common tests section"
-mkdir ${PROJECTNAME}/common-tests
-echo "
+function empty_capture () {
+    glog user.notice "Do mahout capture without introducing any changes; expect no change"
+    # Run mahout capture, without any change
+    (cd ${PROJECTNAME}; ${MAHOUT} capture)
+}
+
+function common_tests () {
+    glog user.notice "Add a common tests section"
+    mkdir ${PROJECTNAME}/common-tests
+    echo "
 
 common tests
 " >> ${PROJECTNAME}/mahout.control
 
-echo "select 1;" > ${PROJECTNAME}/common-tests/null-test.sql
-echo "  psqltest from 1.1 to 1.3 common-tests/null-test.sql" >> ${PROJECTNAME}/mahout.control
+    echo "select 1;" > ${PROJECTNAME}/common-tests/null-test.sql
+    echo "  psqltest from 1.1 to 1.3 common-tests/null-test.sql" >> ${PROJECTNAME}/mahout.control
 
-echo "  psqltest from Base common-tests/pk-test.sql" >> ${PROJECTNAME}/mahout.control
-echo "
+    echo "  psqltest from Base common-tests/pk-test.sql" >> ${PROJECTNAME}/mahout.control
+    echo "
 do \$\$
 declare
    prec record;
@@ -176,8 +188,8 @@ end
 \$\$ language plpgsql;
 " > ${PROJECTNAME}/common-tests/pk-test.sql
 
-echo "  psqltest common-tests/multiply-defined.sql" >> ${PROJECTNAME}/mahout.control
-echo "
+    echo "  psqltest common-tests/multiply-defined.sql" >> ${PROJECTNAME}/mahout.control
+    echo "
 do \$\$
 declare
   c_found boolean;
@@ -200,13 +212,15 @@ end
 \$\$ language plpgsql;
 
 " > ${PROJECTNAME}/common-tests/multiply-defined.sql
+}
 
-
-glog user.notice "Set up filesystem to use the captured mahout config for a fresh install"
-# Set up target directory for sample installation
-rm -rf ${TARGETDIR}
-mkdir ${TARGETDIR}
-cp -r ${PROJECTNAME} ${TARGETDIR}
+function mahout_capture_target () {
+    glog user.notice "Set up filesystem to use the captured mahout config for a fresh install"
+    # Set up target directory for sample installation
+    rm -rf ${TARGETDIR}
+    mkdir ${TARGETDIR}
+    cp -r ${PROJECTNAME} ${TARGETDIR}
+}
 
 function fix_install_uri () {
 # Drop alternate configuration into installation Mahout config
@@ -221,14 +235,16 @@ SUPERUSERACCESS=${SUPERCLUSTER}/${installdb}
 " >> ${TARGETMHDIR}/mahout.conf.keep
     cp ${TARGETMHDIR}/mahout.conf.keep ${TARGETMHDIR}/mahout.conf
 }
-fix_install_uri
 
-glog user.notice "Install basic schema using mahout"
-(cd ${TARGETMHDIR}; ${MAHOUT} install)
+function basic_schema_install () {
+    glog user.notice "Install basic schema using mahout"
+    (cd ${TARGETMHDIR}; ${MAHOUT} install)
+}
 
-glog user.notice "Prepare upgrade for v1.1"
-# Create a couple of upgrades
-echo "
+function prepare_11_upgrade () {
+    glog user.notice "Prepare upgrade for v1.1"
+    # Create a couple of upgrades
+    echo "
 
 version 1.1
 requires Base
@@ -236,29 +252,33 @@ ddl 1.1/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
-mkdir ${PROJECTNAME}/1.1
-echo "
+    mkdir ${PROJECTNAME}/1.1
+    echo "
    alter table t1 add column deleted_on timestamptz;
 " > ${PROJECTNAME}/1.1/stuff.sql
 
-glog user.notice "mahout capture on v1.1"
-(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.1 tar.gz)
+    glog user.notice "mahout capture on v1.1"
+    (cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.1 tar.gz)
+}
 
-glog user.notice "do upgrade of the install instance to run v1.1"
-cp -r ${PROJECTNAME} ${TARGETDIR}
-fix_install_uri
-# And try to install the upgrade
-(cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+function upgrade_install_to_11 () {
+    glog user.notice "do upgrade of the install instance to run v1.1"
+    cp -r ${PROJECTNAME} ${TARGETDIR}
+    fix_install_uri
+    # And try to install the upgrade
+    (cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+}
 
-echo "
+function prepare_12_upgrade () {
+    echo "
 
 version 1.2
 requires 1.1
 ddl 1.2/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
-mkdir ${PROJECTNAME}/1.2
-echo "
+    mkdir ${PROJECTNAME}/1.2
+    echo "
    create table t3 (
      id serial primary key,
      name text not null unique,
@@ -266,18 +286,21 @@ echo "
 
 " > ${PROJECTNAME}/1.2/stuff.sql
 
-glog user.notice "Run mahout capture to put that into the build"
+    glog user.notice "Run mahout capture to put that into the build"
 
-glog user.notice "mahout capture on v1.2"
-(cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.2 tar.gz)
+    glog user.notice "mahout capture on v1.2"
+    (cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.2 tar.gz)
+}
 
-glog user.notice "do upgrade of the install instance to run v1.2"
-cp -r ${PROJECTNAME} ${TARGETDIR}
-fix_install_uri
-(cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+function apply_12_to_target () {
+    glog user.notice "do upgrade of the install instance to run v1.2"
+    cp -r ${PROJECTNAME} ${TARGETDIR}
+    fix_install_uri
+    (cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+}
 
-
-echo "
+function prepare_bad_13_upgrade () {
+    echo "
 
 version 1.3
 requires 1.2
@@ -285,9 +308,9 @@ ddl 1.3/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
-mkdir ${PROJECTNAME}/1.3
+    mkdir ${PROJECTNAME}/1.3
 
-echo "
+    echo "
    alter table t3 add column deleted_on timestamptz;
    create index t3_deleted on t3(deleted_on) where (deleted_on is not null);
 
@@ -295,114 +318,143 @@ echo "
 
 " > ${PROJECTNAME}/1.3/stuff.sql
 
-glog user.notice "mahout capture on v1.3 - expecting error"
-pushd ${PROJECTNAME}
-${MAHOUT} capture
-rc=$?
-if [ $rc -eq 0 ]; then
-     glog user.error "capture succeeded, it should have failed"
-else
-    glog user.notice "capture of busted v1.3 failed as expected"
-fi
-popd
+    glog user.notice "mahout capture on v1.3 - expecting error"
+    pushd ${PROJECTNAME}
+    ${MAHOUT} capture
+    rc=$?
+    if [ $rc -eq 0 ]; then
+	glog user.error "capture succeeded, it should have failed"
+    else
+	glog user.notice "capture of busted v1.3 failed as expected"
+    fi
+    popd
+}
 
-# Now, repair the table definitions, which was the problem
-echo "
+function repair_13 () {
+    # Now, repair the table definitions, which was the problem
+    echo "
    alter table t3 add column deleted_on timestamptz;
    create index t3_deleted on t3(deleted_on) where (deleted_on is not null);
 " > ${PROJECTNAME}/1.3/stuff.sql
 
-# Expect the build to go well
-(cd ${PROJECTNAME}
- ${MAHOUT} capture
- ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz
-)
+    # Expect the build to go well
+    (
+	cd ${PROJECTNAME}
+	${MAHOUT} capture
+	${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz
+    )
+}
 
-# Preparing for expected failure
-cp ${PROJECTNAME}/mahout.control ${PROJECTNAME}/mahout.control-expect-failure 
+function prepare_14_broken () {
+    # Preparing for expected failure
+    cp ${PROJECTNAME}/mahout.control ${PROJECTNAME}/mahout.control-keep
 
-echo "
+    echo "
 
 version 1.4
 requires 1.3
 ddl 1.4/stuff.sql
 psqltest common-tests/failing-test.sql
 
-" >> ${PROJECTNAME}/mahout.control-expect-failure
+" >> ${PROJECTNAME}/mahout.control
 
-echo "
+    echo "
 select 1/0;
 " > ${PROJECTNAME}/common-tests/failing-test.sql
 
-mkdir ${PROJECTNAME}/1.4
+    mkdir ${PROJECTNAME}/1.4
 
-echo "
+    echo "
    alter table t3 drop column deleted_on;
    alter table t3 add column updated_on timestamptz default now();
 " > ${PROJECTNAME}/1.4/stuff.sql
 
-glog user.notice "Attempt capture on bad v1.4, this is expected to fail"
+    glog user.notice "Attempt capture on bad v1.4, this is expected to fail"
 
+    (   # all in a common subprocess
+	cd ${PROJECTNAME}
+	${MAHOUT} capture
+	rc=$?
+	if [ $rc -eq 0 ]; then
+	    glog user.error "capture succeeded, it should have failed"
+	    exit 1
+	fi
+    )
+}
 
-(
-    cd ${PROJECTNAME}
-    MC=${PROJECTNAME}/mahout.control-expect-failure
-    MAHOUTCONFIG=${MC} ${MAHOUT} capture
-    rc=$?
-    if [ $rc -eq 0 ]; then
-	glog user.error "capture succeeded, it should have failed"
-	exit 1
-    fi
-)
-
-# Now, redo version 1.4, without the failing bits
-rm common-tests/failing-test.sql
-echo "
+function repair_14 () {
+    # Now, redo version 1.4, without the failing bits
+    mv ${PROJECTNAME}/mahout.control-keep ${PROJECTNAME}/mahout.control 
+    rm common-tests/failing-test.sql
+    echo "
 
 version 1.4
 requires 1.3
 ddl 1.4/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
+    glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
+    cp -r ${PROJECTNAME} ${TARGETDIR}
+    fix_install_uri
+    (cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
 
+    glog user.notice "Completed upgrade to v1.4"
+}
 
-glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
-cp -r ${PROJECTNAME} ${TARGETDIR}
-fix_install_uri
-(cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+function attach_to_mahout () {
+    ### Create a database and use "mahout attach" to attach a database to
+    ### it
 
-glog user.notice "Completed upgrade to v1.4"
+    psql -d ${clusterdb} \
+	 -c "drop database if exists ${proddb};"
+    psql -d ${clusterdb} \
+	 -c "create database ${i} template ${devdb};"
 
-### Create a database and use "mahout attach" to attach a database to
-### it
+    # It's a clone of the dev schema, so we need to drop the MAHOUT schema
+    psql -d ${produri} \
+	 -c "drop schema \"MaHoutSchema\" cascade;"
 
-psql -d ${clusterdb} \
-     -c "drop database if exists ${proddb};"
-psql -d ${clusterdb} \
-     -c "create database ${i} template ${devdb};"
-
-# It's a clone of the dev schema, so we need to drop the MAHOUT schema
-psql -d ${produri} \
-     -c "drop schema \"MaHoutSchema\" cascade;"
-
-# modify control file to indicate the production DB
-cp ${TARGETMHDIR}/mahout.conf ${TARGETMHDIR}/mahout.conf-production
-echo "
+    # modify control file to indicate the production DB
+    cp ${TARGETMHDIR}/mahout.conf ${TARGETMHDIR}/mahout.conf-production
+    echo "
 MAINDATABASE=${DBCLUSTER}/${proddb}
 SUPERUSERACCESS=${SUPERCLUSTER}/${proddb}
 
 " >> ${TARGETMHDIR}/mahout.conf-production
-(cd ${TARGETMHDIR}; 
- MAHOUTCONFIG=mahout.conf-production ${MAHOUT} attach 1.4)
+    (cd ${TARGETMHDIR}; 
+     MAHOUTCONFIG=mahout.conf-production ${MAHOUT} attach 1.4)
+}
 
-glog user.notice "Now, muss with the production schema, and see that mahout diff notices this"
+function mess_with_production () {
 
-psql -d ${DBCLUSTER}/${proddb} -c "create table extra_table (id serial primary key, description text not null unique);" 
-(cd ${TARGETMHDIR};
- MAHOUTCONFIG=mahout.conf-production ${MAHOUT} diff)
-if [ $? -eq 0 ]; then
-    glog user.notice "Problem: mahout diff did not notice induced changes"
-else
-    glog user.error "Found differences, as expected"
-fi
-popd   # matching pushd
+    glog user.notice "Now, muss with the production schema, and see that mahout diff notices this"
+
+    psql -d ${DBCLUSTER}/${proddb} -c "create table extra_table (id serial primary key, description text not null unique);" 
+    (cd ${TARGETMHDIR};
+     MAHOUTCONFIG=mahout.conf-production ${MAHOUT} diff)
+    if [ $? -eq 0 ]; then
+	glog user.notice "Problem: mahout diff did not notice induced changes"
+    else
+	glog user.error "Found differences, as expected"
+    fi
+}
+
+drop_and_recreate_databases
+initialize_schema
+purge_mahout_and_check_reqts
+mahout_init
+empty_capture
+common_tests
+mahout_capture_target
+fix_install_uri
+basic_schema_install
+prepare_11_upgrade
+upgrade_install_to_11
+prepare_12_upgrade
+apply_12_to_target
+prepare_bad_13_upgrade
+repair_13
+prepare_14_broken
+attach_to_mahout
+mess_with_production
+
