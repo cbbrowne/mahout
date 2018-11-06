@@ -718,7 +718,7 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "DDL script ${sqlscript} failed against database [${MAINDATABASE}]"
 			    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" f
-			    version_load_end ${propversion} "DDL Failure"
+			    version_load_end ${propversion} "broken"
 			    exit 1
 			else
 			    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" t			   
@@ -1681,7 +1681,7 @@ function mahout_slony_attach () {
     local SETUPQ=$PWD/.mahout-temp/mahout-attach-setup
     mahout_initialize_schema > ${SETUPQ}
     echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (clock_timestamp(), clock_timestamp(), 'slony attach mahout', '${PRODVERSION}', 'slony_attach', 'mahout', 'initialized', 't');
-    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', clock_timestamp(), clock_timestamp());
+    insert into version_log (version, install_start, install_end, status) values ('${PRODVERSION}', clock_timestamp(), clock_timestamp(), 'initial');
   commit;" >> ${SETUPQ}
 
     nodeprobs=false
