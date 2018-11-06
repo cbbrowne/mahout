@@ -6,8 +6,10 @@ set -u
 REGUSER=${REGUSER:-"postgres"}
 SUPERUSER=${SUPERUSER:-"postgres"}
 PGCMPHOME=${PGCMPHOME:-${HOME}/PostgreSQL/pgcmp}
-DBCLUSTER=${DBCLUSTER:-"postgresql://${REGUSER}@localhost:7099"}
-SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@localhost:7099"}
+PGPORT=${PGPORT:-7099}
+PGHOST=${PGHOST:-localhost}
+DBCLUSTER=${DBCLUSTER:-"postgresql://${REGUSER}@${PGHOST}:${PGPORT}"}
+SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@${PGHOST}:${PGPORT}"}
 MAHOUTHOME=${MAHOUTHOME:-${HOME}/PostgreSQL/mahout}
 TARGETDIR=${TARGETDIR:-"install-target"}
 MAHOUTLOGDIR=${MAHOUTLOG:-"/tmp/mahout-tests"}
@@ -40,6 +42,7 @@ installdb=installdb
 installuri=${DBCLUSTER}/${installdb}
 proddb=proddb
 produri=${DBCLUSTER}/${proddb}
+tempdevcopy=tempdevdb
 
 NOTICES=0
 WARNINGS=0
@@ -297,6 +300,19 @@ function apply_12_to_target () {
     cp -r ${PROJECTNAME} ${TARGETDIR}
     fix_install_uri
     (cd ${TARGETMHDIR}; ${MAHOUT} upgrade)
+    keep_copy_of_devdb
+}
+
+function keep_copy_of_devdb () {
+    glog  user.notice "Keeping copy of devdb [${devdb}] in [${tempdevcopy}]"
+    dropdb --if-exists -U $SUPERUSER -p ${PGPORT} -h ${PGHOST} ${tempdevcopy}
+    createdb -p ${PGPORT} -U $SUPERUSER  -h ${PGHOST}  -T ${devdb} ${tempdevcopy}
+}
+function recover_devdb_from_copy () {
+    glog user.notice "Recovering devdb [${devdb}] from [${tempdevcopy}]"
+    dropdb -p ${PGPORT}  -h ${PGHOST}  -U $SUPERUSER ${devdb}
+    createdb -p ${PGPORT}  -h ${PGHOST} -U $SUPERUSER  -T ${tempdevcopy} ${devdb} 
+    glog user.notice "Recovered devdb [${devdb}] from [${tempdevcopy}]"
 }
 
 function prepare_bad_13_upgrade () {
@@ -331,6 +347,8 @@ ddl 1.3/stuff.sql
 }
 
 function repair_13 () {
+    # Get the 12 database back
+    recover_devdb_from_copy
     # Now, repair the table definitions, which was the problem
     echo "
    alter table t3 add column deleted_on timestamptz;
@@ -348,7 +366,8 @@ function repair_13 () {
 function prepare_14_broken () {
     # Preparing for expected failure
     cp ${PROJECTNAME}/mahout.control ${PROJECTNAME}/mahout.control-keep
-
+    keep_copy_of_devdb
+    
     echo "
 
 version 1.4
@@ -385,7 +404,9 @@ select 1/0;
 function repair_14 () {
     # Now, redo version 1.4, without the failing bits
     mv ${PROJECTNAME}/mahout.control-keep ${PROJECTNAME}/mahout.control 
-    rm common-tests/failing-test.sql
+    recover_devdb_from_copy
+    
+    rm -f common-tests/failing-test.sql
     echo "
 
 version 1.4
@@ -455,6 +476,7 @@ apply_12_to_target
 prepare_bad_13_upgrade
 repair_13
 prepare_14_broken
+repair_14
 attach_to_mahout
 mess_with_production
 
