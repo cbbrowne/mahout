@@ -2152,7 +2152,7 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 
 		# Apply new version to it...
 		SLVERSIONSUFFIX=$PWD/.mahout-temp/slonik-log-version-${propversion}.sql
-		echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = clock_timestamp() where version = '${propversion}';" > $SLVERSIONSUFFIX
+		echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = clock_timestamp(), status = 'completed' where version = '${propversion}';" > $SLVERSIONSUFFIX
 		echo "execute script (filename='${SLVERSIONSUFFIX}', event node=$ORIGINNODEID); echo 'complete mahout logs for version ${propversion}';" >> $DDLEXECUTESLONIK
 
 		# After end of loop, assemble the slonik script and run it, then...
