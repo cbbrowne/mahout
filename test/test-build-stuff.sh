@@ -414,6 +414,13 @@ requires 1.3
 ddl 1.4/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
+
+    (cd ${PROJECTNAME}
+     ${MAHOUT} capture
+    )
+}
+
+function upgrade_install_1314 () {
     glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
     cp -r ${PROJECTNAME} ${TARGETDIR}
     fix_install_uri
@@ -429,7 +436,7 @@ function attach_to_mahout () {
     psql -d ${clusterdb} \
 	 -c "drop database if exists ${proddb};"
     psql -d ${clusterdb} \
-	 -c "create database ${i} template ${devdb};"
+	 -c "create database ${proddb} template ${devdb};"
 
     # It's a clone of the dev schema, so we need to drop the MAHOUT schema
     psql -d ${produri} \
@@ -447,7 +454,6 @@ SUPERUSERACCESS=${SUPERCLUSTER}/${proddb}
 }
 
 function mess_with_production () {
-
     glog user.notice "Now, muss with the production schema, and see that mahout diff notices this"
 
     psql -d ${DBCLUSTER}/${proddb} -c "create table extra_table (id serial primary key, description text not null unique);" 
@@ -475,8 +481,10 @@ prepare_12_upgrade
 apply_12_to_target
 prepare_bad_13_upgrade
 repair_13
+exit
 prepare_14_broken
 repair_14
+upgrade_install_1314
 attach_to_mahout
 mess_with_production
 
