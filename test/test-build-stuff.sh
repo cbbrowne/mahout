@@ -481,7 +481,6 @@ prepare_12_upgrade
 apply_12_to_target
 prepare_bad_13_upgrade
 repair_13
-exit
 prepare_14_broken
 repair_14
 upgrade_install_1314
