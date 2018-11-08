@@ -95,10 +95,8 @@ kill_all_slons ()
     fi
 }
 
-slonydir=$TARGETMHDIR/slony
+slonydir=$TARGETMHDIR/.slony
 mkdir -p ${slonydir}/pid
-
-kill_all_slons
 
 function drop_and_recreate_databases () {
     # Drop databases and then create them
@@ -376,7 +374,7 @@ ddl 1.1/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
-    mkdir ${PROJECTNAME}/1.1
+    mkdir -p ${PROJECTNAME}/1.1
     echo "
    create table if not exists t1 (id serial primary key, name text not null unique, created_on timestamptz default now());
    create schema if not exists subschema;
@@ -414,7 +412,7 @@ requires 1.1
 ddl 1.2/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
-    mkdir ${PROJECTNAME}/1.2
+    mkdir -p ${PROJECTNAME}/1.2
     echo "
    create table t3 (
      id serial primary key,
@@ -426,14 +424,20 @@ ddl 1.2/stuff.sql
 
 function capture_v12 () {
     glog user.notice "mahout capture on v1.2"
-    (cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.2 tar.gz)
+    (cd ${PROJECTNAME}
+     ${MAHOUT} capture
+     ${MAHOUT} build ${PROJECTNAME}-v1.2 tar.gz
+    )
 }
 
 function install_v12_on_cluster () {
     glog user.notice "do upgrade of the install instance to run v1.2"
     cp -r ${PROJECTNAME} ${TARGETDIR}
     fix_install_uri
-    (cd ${TARGETMHDIR}; ${MAHOUT} slonik; ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.2.slonik)
+    (cd ${TARGETMHDIR}
+     ${MAHOUT} slonik
+     ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.2.slonik
+    )
 }
 
 function prep_v13 () {
@@ -445,7 +449,7 @@ ddl 1.3/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
-    mkdir ${PROJECTNAME}/1.3
+    mkdir -p ${PROJECTNAME}/1.3
 
     echo "
    alter table t3 add column deleted_on timestamptz;
@@ -459,6 +463,14 @@ function capture_v13 () {
     (cd ${PROJECTNAME}
      ${MAHOUT} capture
      ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz
+    )
+}
+
+function install_v13_on_cluster () {
+    glog user.notice "do upgrade of the install instance to run v1.3"
+    cp -r ${PROJECTNAME} ${TARGETDIR}
+    fix_install_uri
+    (cd ${TARGETMHDIR}
      ${MAHOUT} slonik
      ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.3.slonik
     )
@@ -473,11 +485,7 @@ ddl 1.4/stuff.sql
 
 " >> ${PROJECTNAME}/mahout.control
 
-    echo "
-select 1/0;
-" > ${PROJECTNAME}/common-tests/failing-test.sql
-
-    mkdir ${PROJECTNAME}/1.4
+    mkdir -p ${PROJECTNAME}/1.4
 
     echo "
    alter table t3 drop column deleted_on;
@@ -487,7 +495,10 @@ select 1/0;
 
 function capture_v14 () {
     glog user.notice "mahout capture on v1.4"
-    (cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.4 tar.gz)
+    (cd ${PROJECTNAME}
+     ${MAHOUT} capture
+     ${MAHOUT} build ${PROJECTNAME}-v1.4 tar.gz
+    )
 }
 
 function install_v14_on_cluster () {
@@ -499,6 +510,42 @@ function install_v14_on_cluster () {
      ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.4.slonik
     )
     glog user.notice "Completed upgrade to v1.4"
+}
+
+function prep_v15 () {
+    echo "
+
+version 1.5
+requires 1.4
+ddl 1.5/drop-t3.sql
+
+" >> ${PROJECTNAME}/mahout.control
+
+    mkdir -p ${PROJECTNAME}/1.5
+
+    echo "
+   drop table t3;
+   create table t4 (id serial primary key, name text not null unique);
+" > ${PROJECTNAME}/1.5/drop-t3.sql
+}
+
+function capture_v15 () {
+    glog user.notice "mahout capture on v1.5"
+    (cd ${PROJECTNAME}
+     ${MAHOUT} capture
+     ${MAHOUT} build ${PROJECTNAME}-v1.5 tar.gz
+    )
+}
+
+function install_v15_on_cluster () {
+    glog user.notice "do upgrade of the install instance to run v1.5"
+    cp -r ${PROJECTNAME} ${TARGETDIR}
+    fix_install_uri
+    (cd ${TARGETMHDIR}
+     ${MAHOUT} slonik
+     ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.5.slonik
+    )
+    glog user.notice "Completed upgrade to v1.5"
 }
  
 # Start...
@@ -523,9 +570,20 @@ capture_v12
 install_v12_on_cluster
 prep_v13
 capture_v13
+install_v13_on_cluster
 prep_v14
 capture_v14
 install_v14_on_cluster
+prep_v15
+capture_v15
+install_v15_on_cluster
 kill_all_slons
+
+# Test scenarios still needed...
+# - set drop table fails!!!!
+# - Use DML action
+# - Use UNIX action
+
+
 
 
