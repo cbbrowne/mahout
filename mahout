@@ -2001,7 +2001,7 @@ create temp table dropped_tables (table_name text primary key);
 \COPY dropped_tables (table_name) from '${DEADTABLESFILE}';
 analyze dropped_tables;
 \COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from dropped_tables where table_name = quote_ident(tab_nspname) || '.' quote_ident(tab_relname))) to '${DROPTABLESSLONIK}';
-" > $DROPTABLESLONIK
+" > $DROPTABLESQL
 
 			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADTABLESQL}"
 			$PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPTABLESQL}"
@@ -2035,7 +2035,7 @@ create temp table t_added_tables (table_name text primary key);
 \copy t_added_tables (table_name) from '${NEWTABLESFILE}';
 analyze t_added_tables;
 create temp table t_slonik_code as 
-select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|| quote_literal(table_name) || ');' as slonik from t_added_tables;
+select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|| quote_literal(table_name) || '); echo '|| quote_literal(table_name) ||  ';' as slonik from t_added_tables;
 \copy (select slonik from t_slonik_code) to '${NEWTABLESSLONIK}';
 " > $NEWTABLESSQL
 			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
@@ -2054,7 +2054,7 @@ create temp table t_added_sequences (sequence_name text primary key);
 \copy t_added_sequences (sequence_name) from '${NEWSEQUENCESFILE}';
  analyze t_added_sequences;
 create temp table t_slonik_code as 
-select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequences='|| quote_literal(sequence_name) || ');' as slonik from t_added_sequences;
+select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequences='|| quote_literal(sequence_name) || ');echo '|| quote_literal(sequence_name) ||  ';' as slonik from t_added_sequences;
 \copy (select slonik from t_slonik_code) to '${NEWSEQUENCESSLONIK}';
 " > $NEWSEQUENCESSQL
 			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${SEQUENCESADDEDSQL}"
@@ -2071,10 +2071,10 @@ select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequen
 
 			SLVERSIONPREFIX=$PWD/.mahout-temp/slonik-log-version-prefix-${propversion}.sql
 			echo "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', clock_timestamp());" > $SLVERSIONPREFIX
-			echo "execute script (event node=${ORIGINNODEID}, filename='${SLVERSIONPREFIX}');" > $DDLEXECUTESLONIK
+			echo "execute script (event node=${ORIGINNODEID}, filename='${SLVERSIONPREFIX}');echo 'Distribute version_log insert via EXECUTE SCRIPT';" > $DDLEXECUTESLONIK
 			
 			SUBSCRIBESETS=$PWD/.mahout-temp/slonik-subscribe-sets-${propversion}.slonik
-			echo "echo 'Next, subscribe nodes';" > $SUBSCRIBESETS
+			echo "echo 'Subscribe nodes to temporary replication set ${SLONYTEMPSET}';" > $SUBSCRIBESETS
 			for node in `cat $NODEORDERFILE`; do
 			    if [[ $node -ne $ORIGINNODEID ]]; then
 				QPROVIDER="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET} and sub_receiver=${node};"
@@ -2093,7 +2093,7 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 			SLACTIONS=$(( $SLACTIONS+1 ))
 			SLEXECPREFIX=$PWD/.mahout-temp/slonik-pre-action-log-${propversion}-${SLACTIONS}.sql
 			echo "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', clock_timestamp(), 'slonik', 'DDL script', '${sqlscript}', '${md5sum}');" > $SLEXECPREFIX
-			echo "execute script (filename='${SLEXECPREFIX}', event node=$ORIGINNODEID);echo 'distribute action_log beginning';" >> $DDLEXECUTESLONIK
+			echo "execute script (filename='${SLEXECPREFIX}', event node=$ORIGINNODEID);echo 'begin action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
 			echo "execute script (filename='${sqlscript}', event node=$ORIGINNODEID);echo 'Invoke DDL: ${sqlscript}';" >> $DDLEXECUTESLONIK
 			SLEXECSUFFIX=$PWD/.mahout-temp/slonik-post-action-log-${propversion}-${SLACTIONS}.sql
 			echo "update \"${MAHOUTSCHEMA}\".action_log set result='completed', success='true', action_end=clock_timestamp() where version='${propversion}' and action='slonik' and action_type='DDL script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_end is null;" > $SLEXECSUFFIX
@@ -2163,8 +2163,6 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 		    cat $addition >> $DDLSLONIK
 		done
 		glog user.notice "Slonik DDL ready to apply: $DDLSLONIK"
-		${PGBINDIR}/slonik $DDLSLONIK
-		
    	    else
 		glog user.debug "Slonik not applying earlier version ${propversion}"
 	    fi

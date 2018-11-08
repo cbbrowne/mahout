@@ -397,7 +397,13 @@ function install_v11_on_cluster () {
     cp -r ${PROJECTNAME} ${TARGETDIR}
     fix_install_uri
     # And try to install the upgrade
-    (cd ${TARGETMHDIR}; ${MAHOUT} slonik; ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.1.slonik)
+    (cd ${TARGETMHDIR}
+     ${MAHOUT} slonik
+     glog user.notice "Prepped slonik: .mahout-temp/mahout-ddl-script-1.1.slonik"
+     ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.1.slonik
+     glog user.notice "Completed slonik for v1.1"
+    )
+    glog user.notice "Upgrade to v1.1 completed"
 }
 
 function prep_v12 () {
@@ -416,8 +422,6 @@ ddl 1.2/stuff.sql
      created_on timestamptz not null default now());
 
 " > ${PROJECTNAME}/1.2/stuff.sql
-
-    glog user.notice "Run mahout capture to put that into the build"
 }
 
 function capture_v12 () {
@@ -452,7 +456,12 @@ ddl 1.3/stuff.sql
 
 function capture_v13 () {
     glog user.notice "mahout capture on v1.3"
-    (cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz; ${MAHOUT} slonik ; ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.3.slonik)
+    (cd ${PROJECTNAME}
+     ${MAHOUT} capture
+     ${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz
+     ${MAHOUT} slonik
+     ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.3.slonik
+    )
 }
 
 function prep_v14 () {
@@ -485,7 +494,10 @@ function install_v14_on_cluster () {
     glog user.notice "do upgrade of the install instance to run v1.3, v1.4"
     cp -r ${PROJECTNAME} ${TARGETDIR}
     fix_install_uri
-    (cd ${TARGETMHDIR}; ${MAHOUT} slonik; ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.4.slonik)
+    (cd ${TARGETMHDIR}
+     ${MAHOUT} slonik
+     ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.4.slonik
+    )
     glog user.notice "Completed upgrade to v1.4"
 }
  

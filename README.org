@@ -208,7 +208,7 @@ expect the tool to be used:
                      all of the data.
    - It is essentially a way of avoiding the need to run ~tar cfvz
      schema-version.tar.gz~
- - ~mahout slonik~ :: This generates and runs~slonik~ scripts for use
+ - ~mahout slonik~ :: This generates ~slonik~ scripts for use
       with Slony to perform the specified upgrade, stopping at the
       specified version, if requested.
    - It only works if the version upgrade(s) are either /only/ consist
@@ -232,6 +232,16 @@ expect the tool to be used:
    - An alternative approach is to drop replication and recreate with
      the whole set of tables.  But that requires little input, so
      seems sensible to leave to the user...
+   - The ~slonik~ script is /not invoked/; it may be readily invoked
+     by the command:
+#+BEGIN_EXAMPLE
+$ slonik .mahout-temp/mahout-ddl-script-1.1.slonik
+#+END_EXAMPLE
+     (where "1.1" is replaced with the apropos version label).  The
+     slonik script references files in ~.mahout-temp~, as well as the
+     DDL scripts in the Mahout installation so should be run $PWD
+     being set to the ~mahout~ directory containing ~mahout.conf~ and
+     ~mahout.control~.
 ** Mahout Directory Structure
 
   A schema repository will consist of a directory structure where the
