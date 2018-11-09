@@ -580,7 +580,6 @@ install_v15_on_cluster
 kill_all_slons
 
 # Test scenarios still needed...
-# - set drop table fails!!!!
 # - Use DML action
 # - Use UNIX action
 

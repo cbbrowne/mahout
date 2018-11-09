@@ -1991,36 +1991,37 @@ cluster name=${SLONYCLUSTER};
 			glog user.notice "pgcmp rc=${rc}, expecting non-zero as we expect a difference"
 			# Now, figure out the tables to be dropped
 			DEADTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.txt
-			DEADTABLESQL="\COPY (select object_name from unexplained_items where object_type = 'table' and difference_type = 'missing in 2nd database') to '${DEADTABLESFILE}';"
-			glog user.notice "Dump via $DEADTABLESQL"
+			DEADTABLESQUERY="\COPY (select object_name from unexplained_items where object_type = 'table' and difference_type = 'missing in 2nd DB') to '${DEADTABLESFILE}';"
+			glog user.notice "Dump via $DEADTABLESQUERY"
 			glog user.notice "Dump to $DEADTABLESFILE"
+			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADTABLESQUERY}"
+			glog user.notice "Found dead tables"
 			DROPTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.slonik
 			DROPTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.sql
 			echo "
 create temp table dropped_tables (table_name text primary key);
 \COPY dropped_tables (table_name) from '${DEADTABLESFILE}';
 analyze dropped_tables;
-\COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from dropped_tables where table_name = quote_ident(tab_nspname) || '.' quote_ident(tab_relname))) to '${DROPTABLESSLONIK}';
-" > $DROPTABLESQL
+\COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from dropped_tables where table_name = quote_ident(tab_nspname) || '.' || quote_ident(tab_relname))) to '${DROPTABLESSLONIK}';
+" > $DROPTABLESSQL
 
-			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADTABLESQL}"
-			$PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPTABLESQL}"
+			$PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPTABLESSQL}"
 
 			DEADSEQUENCESFILE=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.txt
-			DEADSEQUENCESQL="\COPY (select object_name from unexplained_items where object_type = 'sequence' and difference_type = 'missing in 2nd database') to '${DEADSEQUENCESFILE}';"
-			glog user.notice "Dump via $DEADSEQUENCESQL"
+			DEADSEQUENCEQUERY="\COPY (select object_name from unexplained_items where object_type = 'sequence' and difference_type = 'missing in 2nd DB') to '${DEADSEQUENCESFILE}';"
+			glog user.notice "Dump via $DEADSEQUENCEQUERY"
 			glog user.notice "Dump to $DEADSEQUENCESFILE"
+			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADSEQUENCEQUERY}"
+			glog user.notice "Found dead sequences"
 			DROPSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.slonik
 			DROPSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.sql
 			echo "
-create temp table t_dropped_tables (table_name text primary key);
-\COPY t_dropped_tables (table_name primary key) from '${DEADSEQUENCESFILE}';
-analyze dropped_tables;
-\COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from t_dropped_tables where table_name = quote_ident(tab_nspname) || '.' quote_ident(tab_relname))) to '${DROPSEQUENCESSLONIK}';
-" > $DROPSEQUENCESSLONIK
+create temp table t_dropped_sequences (sequence_name text primary key);
+\COPY t_dropped_sequences (sequence_name) from '${DEADSEQUENCESFILE}';
+analyze dropped_sequences;
+\COPY (select 'set drop sequence (origin=${ORIGINNODEID}, id='|| seq_id || ');' from \"_${SLONYCLUSTER}\".sl_sequence where exists (select 1 from t_dropped_sequences where sequence_name = quote_ident(seq_nspname) || '.' || quote_ident(seq_relname))) to '${DROPSEQUENCESSLONIK}';
+" > $DROPSEQUENCESSQL
 
-			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADSEQUENCESQL}"
-			glog user.notice "Found dead sequences"
 			$PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPSEQUENCESSQL}"
 			glog user.notice "Generated slonik to dead sequences"
 
@@ -2159,8 +2160,13 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 		DDLACTIONSTART=$PWD/.mahout-temp/mahout-ddl-start-execute-script.sql
 		echo "include <${PWD}/.mahout-temp/mahout-preamble.slonik>;" > $DDLSLONIK
 		echo "" > $DDLSLONIK
-		for addition in $PWD/.mahout-temp/mahout-preamble.slonik $DEADTABLESSLONIK $DEADSEQUENCESSLONIK $DDLEXECUTESLONIK $DDLADDSET $NEWTABLESSLONIK $NEWSEQUENCESSLONIK $SUBSCRIBESETS; do
-		    cat $addition >> $DDLSLONIK
+		for addition in $PWD/.mahout-temp/mahout-preamble.slonik $DROPTABLESSLONIK $DROPSEQUENCESSLONIK $DDLEXECUTESLONIK $DDLADDSET $NEWTABLESSLONIK $NEWSEQUENCESSLONIK $SUBSCRIBESETS; do
+		    if [ -s $addition ]; then
+			echo "# from ${addition}" >> $DDLSLONIK
+			cat $addition >> $DDLSLONIK
+		    else
+			echo "# ${addition} was empty" >> $DDLSLONIK
+		    fi
 		done
 		glog user.notice "Slonik DDL ready to apply: $DDLSLONIK"
    	    else
