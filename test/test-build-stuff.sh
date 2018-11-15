@@ -158,7 +158,11 @@ function mahout_init () {
 function empty_capture () {
     glog user.notice "Do mahout capture without introducing any changes; expect no change"
     # Run mahout capture, without any change
-    (cd ${PROJECTNAME}; ${MAHOUT} capture)
+    (
+	cd ${PROJECTNAME}
+	${MAHOUT} validate_control
+	${MAHOUT} capture
+    )
 }
 
 function common_tests () {
@@ -261,7 +265,12 @@ ddl 1.1/stuff.sql
 " > ${PROJECTNAME}/1.1/stuff.sql
 
     glog user.notice "mahout capture on v1.1"
-    (cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.1 tar.gz)
+    (
+	cd ${PROJECTNAME}
+	${MAHOUT} validate_control
+	${MAHOUT} capture
+	${MAHOUT} build ${PROJECTNAME}-v1.1 tar.gz
+    )
 }
 
 function upgrade_install_to_11 () {
@@ -292,7 +301,12 @@ ddl 1.2/stuff.sql
     glog user.notice "Run mahout capture to put that into the build"
 
     glog user.notice "mahout capture on v1.2"
-    (cd ${PROJECTNAME}; ${MAHOUT} capture; ${MAHOUT} build ${PROJECTNAME}-v1.2 tar.gz)
+    (
+	cd ${PROJECTNAME}
+	${MAHOUT} validate_control
+	${MAHOUT} capture
+	${MAHOUT} build ${PROJECTNAME}-v1.2 tar.gz
+    )
 }
 
 function apply_12_to_target () {
@@ -336,6 +350,7 @@ ddl 1.3/stuff.sql
 
     glog user.notice "mahout capture on v1.3 - expecting error"
     pushd ${PROJECTNAME}
+    ${MAHOUT} validate_control
     ${MAHOUT} capture
     rc=$?
     if [ $rc -eq 0 ]; then
@@ -358,6 +373,7 @@ function repair_13 () {
     # Expect the build to go well
     (
 	cd ${PROJECTNAME}
+	${MAHOUT} validate_control
 	${MAHOUT} capture
 	${MAHOUT} build ${PROJECTNAME}-v1.3 tar.gz
     )
@@ -392,6 +408,7 @@ select 1/0;
 
     (   # all in a common subprocess
 	cd ${PROJECTNAME}
+	${MAHOUT} validate_control
 	${MAHOUT} capture
 	rc=$?
 	if [ $rc -eq 0 ]; then
@@ -416,6 +433,7 @@ ddl 1.4/stuff.sql
 " >> ${PROJECTNAME}/mahout.control
 
     (cd ${PROJECTNAME}
+     ${MAHOUT} validate_control
      ${MAHOUT} capture
     )
 }
@@ -453,9 +471,86 @@ SUPERUSERACCESS=${SUPERCLUSTER}/${proddb}
      MAHOUTCONFIG=mahout.conf-production ${MAHOUT} attach 1.4)
 }
 
+function mix_ddl_dml_badly () {
+    cp ${PROJECTNAME}/mahout.control ${PROJECTNAME}/mahout.control-keep
+
+    mkdir -p ${PROJECTNAME}/badmix
+    echo "-- DDL noop
+create table mix_ddl_dml (id serial primary key, data text not null unique);" > $PROJECTNAME/badmix/ddl-for-mix.sql
+    echo "-- DML also
+insert into mix_ddl_dml (data) values ('a'), ('b'), ('c');" > $PROJECTNAME/badmix/dml-for-mix.sql
+    
+    echo "
+
+version busteddmlddl
+requires 1.4
+  ddl badmix/ddl-for-mix.sql
+  dml badmix/dml-for-mix.sql
+" >> $PROJECTNAME/mahout.control
+    
+    glog user.notice "mahout capture on vbusteddmlddl - expecting error"
+    pushd ${PROJECTNAME}
+    ${MAHOUT} validate_control
+    rc=$?
+    if [ $rc -eq 0 ]; then
+	glog user.error "capture succeeded, it should have failed"
+	exit 1
+    else
+	glog user.notice "capture of busteddmlddl failed as expected"
+    fi
+    popd
+}
+
+function cleanup_after_dmlddl () {
+    # Now, restore control...
+    rm -f $PROJECTNAME/badmix/dml-for-mix.sql $PROJECTNAME/badmix/ddl-for-mix.sql
+    rmdir $PROJECTNAME/badmix
+    mv ${PROJECTNAME}/mahout.control-keep $PROJECTNAME/mahout.control
+}
+
+function ddl_and_dml_in_proper_harmony () {
+    glog user.notice "Upgrade that combines DDL and DML properly"
+    mkdir ${PROJECTNAME}/v1.5ddl
+    mkdir ${PROJECTNAME}/v1.5dml
+    mkdir -p ${PROJECTNAME}/unix    
+    echo "-- DDL noop
+create table mix_ddl_dml (id serial primary key, data text not null unique);" > $PROJECTNAME/v1.5ddl/ddl-for-mix.sql
+    echo "-- DML also
+insert into mix_ddl_dml (data) values ('a'), ('b'), ('c');" > $PROJECTNAME/v1.5dml/dml-for-mix.sql
+    echo "\!/bin/bash
+local parms=\$1
+source \$parms
+for i in d e f; do
+   \${PGBINDIR}/psql -d \${MAINDATABASE} -c \"insert into mix_ddl_unix(data) values ('\${i}')\"
+done
+" > $PROJECTNAME/unix/script
+    chmod a+x $PROJECTNAME/unix/script
+    
+    echo "
+
+version v1.5ddl
+requires 1.4
+  ddl v1.5ddl/ddl-for-mix.sql
+
+version v1.5dml
+requires v1.5ddl
+  dml v1.5dml/dml-for-mix.sql
+
+version v1.5unix
+requires v1.5dml
+  unix unix/script mahout.conf
+
+" >> $PROJECTNAME/mahout.control
+    
+    glog user.notice "mahout capture of versions for DDL and DML"
+    pushd ${PROJECTNAME}
+    ${MAHOUT} capture
+    popd
+
+}
+
 function mess_with_production () {
     glog user.notice "Now, muss with the production schema, and see that mahout diff notices this"
-
     psql -d ${DBCLUSTER}/${proddb} -c "create table extra_table (id serial primary key, description text not null unique);" 
     (cd ${TARGETMHDIR};
      MAHOUTCONFIG=mahout.conf-production ${MAHOUT} diff)
@@ -464,6 +559,48 @@ function mess_with_production () {
     else
 	glog user.error "Found differences, as expected"
     fi
+}
+
+function mix_ddl_unix_badly () {
+    cp ${PROJECTNAME}/mahout.control ${PROJECTNAME}/mahout.control-keep
+    mkdir -p ${PROJECTNAME}/badmix
+    mkdir -p ${PROJECTNAME}/unix    
+    echo "-- DDL noop
+create table mix_ddl_unix (id serial primary key, data text not null unique);" > $PROJECTNAME/badmix/ddl-for-mix.sql
+    echo "\!/bin/bash
+local parms=\$1
+source \$parms
+for i in d e f; do
+   \${PGBINDIR}/psql -d \${MAINDATABASE} -c \"insert into mix_ddl_unix(data) values ('\${i}')\"
+done
+" > $PROJECTNAME/unix/script
+    chmod a+x $PROJECTNAME/unix/script
+    echo "
+
+version busteddmlddl
+requires 1.4
+  ddl badmix/ddl-for-mix.sql
+  unix unix/script mahout.conf
+" >> $PROJECTNAME/mahout.control
+    
+    glog user.notice "mahout capture on vbusteddmlddl - expecting error"
+    pushd ${PROJECTNAME}
+    ${MAHOUT} validate_control
+    rc=$?
+    if [ $rc -eq 0 ]; then
+	glog user.error "capture succeeded, it should have failed"
+	exit 1
+    else
+	glog user.notice "capture of busteddmlddl failed as expected"
+    fi
+    popd
+}
+
+function cleanup_after_ddlunix () {
+    # Now, restore control...
+    rm -f $PROJECTNAME/badmix/ddl-for-mix.sql
+    rmdir $PROJECTNAME/badmix
+    mv ${PROJECTNAME}/mahout.control-keep $PROJECTNAME/mahout.control
 }
 
 drop_and_recreate_databases
@@ -483,7 +620,13 @@ prepare_bad_13_upgrade
 repair_13
 prepare_14_broken
 repair_14
-upgrade_install_1314
-attach_to_mahout
-mess_with_production
+#mix_ddl_dml_badly
+#cleanup_after_dmlddl
+ddl_and_dml_in_proper_harmony
+mix_ddl_unix_badly
+
+#cleanup_after_ddlunix
+#upgrade_install_1314
+#attach_to_mahout
+#mess_with_production
 

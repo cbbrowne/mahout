@@ -451,6 +451,8 @@ function validate_control () {
 	gottotal=$(( $gotddl + $gotdml + $gotunix ))
 	if [ $gottotal -gt 1 ]; then
 	    glog user.error "version $cversion has multiple processing types"
+	    PROBLEMS=$((${PROBLEMS} + 1))
+	    exit 1
 	fi
 	
 	rm -f ${shortened} ${dropcomments} ${dropwhitespace} ${badlines} ${psqlscripts} ${badlines} ${vfile} ${rfile} ${unixcommands}  ${versionorder} ${depfodder}
@@ -735,7 +737,7 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			action_start ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}"
 			dump_current_schema pre-dml $predmlcmp ${MAINDATABASE}
 			
-			$PGBINDIR/psql -d ${MAINDATABASE} -f ${dmlscript} ${!dmlarg} > ./${dmlscript}.${propversion}.log 2>&1
+			$PGBINDIR/psql -d ${MAINDATABASE} -f ${dmlscript} > ./${dmlscript}.${propversion}.log 2>&1
 			dump_current_schema post-dml $postdmlcmp ${MAINDATABASE}
 			PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${predmlcmp} PGCMPINPUT2=${postdmlcmp} PGCLABEL1=pre-dml PGCLABEL2=post-dml ${PGCMPHOME}/pgcmp > /dev/null 2>&1
 			rc=$?
@@ -762,9 +764,9 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			local postunixcmp=`mktemp /tmp/mahout-capture-pre-unix.XXXXXXXXXXXXXXXX`
 			cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
 			action_start ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}"
-			dump_current_schema pre-unix ${MAINDATABASE}
-			MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ./${unixcommand}.${propversion}.log 2>&1
-			dump_current_schema post-unix ${MAINDATABASE}
+			dump_current_schema pre-unix ${preunixcmp}  ${MAINDATABASE}
+			MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${unixarg} > ./${unixcommand}.${propversion}.log 2>&1
+			dump_current_schema post-unix ${postunixcmp} ${MAINDATABASE}
 			PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${preunixcmp} PGCMPINPUT2=${postunixcmp} PGCLABEL1=pre-unix PGCLABEL2=post-unix ${PGCMPHOME}/pgcmp > /dev/null 2>&1
 			rc=$?
 			case $rc in
@@ -1101,7 +1103,7 @@ function mahout_upgrade () {
 			cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
 
 			action_start ${propversion} "upgrade" "unix script" "${unixcommand}" "${md5sum}"			
-			MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ${unixcommand}.${propversion}.log 2>&1
+			MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${unixarg} > ${unixcommand}.${propversion}.log 2>&1
 			action_end ${propversion} "upgrade" "unix script" "${unixcommand}" "${md5sum}" t
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
