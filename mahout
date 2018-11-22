@@ -1088,6 +1088,7 @@ function mahout_upgrade () {
 			action_start $propversion upgrade "DML script" ${sqlscript} "${md5sum}"
 			$PGBINDIR/psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 			retcode=$?
+
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "DML script ${sqlscript} failed against database [${MDB}]"
 			    action_end ${propversion} "upgrade" "DML script" "${sqlscript}" "${md5sum}" f
@@ -1152,13 +1153,18 @@ function mahout_install () {
     # check that there's no Mahout schema
     local SCHEMAQ="select count(1) from pg_catalog.pg_namespace where nspname='${MAHOUTSCHEMA}';"
     local MCOUNT=`$PGBINDIR/psql -d ${MAINDATABASE} -qAt -c "${SCHEMAQ}"`
+    mkdir -p $PWD/.mahout-temp
+    local SETUPQ=$PWD/.mahout-temp/mahout-install-setup.sql
+    glog user.notice "Setup of mahout in [${SETUPQ}]"
+    touch $SETUPQ
+    
     case $MCOUNT in
 	1)
 	    glog user.error "Database already has Mahout schema ${MAHOUTSCHEMA}"
 	    exit 1
 	    ;;
 	0)
-	    local SETUPQ=$PWD/.mahout-temp/mahout-install-setup
+	    glog user.notice "Initializing database with Mahout schema: ${MAHOUTSCHEMA}"
 	    mahout_initialize_schema > ${SETUPQ}
 	    ;;
     esac
@@ -1166,7 +1172,7 @@ function mahout_install () {
     echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (clock_timestamp(), clock_timestamp(), 'install mahout', 'MahoutInstall', 'install', 'mahout', 'initialized', 't');
   commit;" >> ${SETUPQ}
 
-    $PGBINDIR/psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
+    $PGBINDIR/psql -d ${MAINDATABASE} -f ${SETUPQ}
     retcode=$?
     if [ $retcode -ne 0 ]; then
 	glog user.error "Unable to setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
@@ -1465,7 +1471,7 @@ function mahout_build () {
     local BHOME=`mktemp -d $PWD/.mahout-temp/mahout-build-path.XXXXXXXXXXXXXXX`
     mkdir -p ${BHOME}/${BLABEL}
     glog user.info "mahout build generated build directory ${BHOME}/${BLABEL}"
-    tar cf - . | (cd ${BHOME}/${BLABEL}; tar xf -)
+    tar cf - --exclude=.mahout-temp . | (cd ${BHOME}/${BLABEL}; tar xf -)
     glog user.notice "mahout build copied build material to ${BHOME}/${BLABEL}"
 
     glog user.notice "mahout build: trimming unneeded material"
