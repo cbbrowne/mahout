@@ -353,7 +353,7 @@ SLONYMAINSET=${SLONYMAINSET}
 SLONYTEMPSET=${SLONYTEMPSET}
 SLONYOMITSEQUENCES=${SLONYOMITSEQUENCES}
 SLONYOMITTABLES=${SLONYOMITTABLES}
-MAHOUTOMITSCHEMAS=\"('_${SLONYCLUSTER}', 'nullschema', 'pg_catalog', 'information_schema', '\\\"MaHoutSchema\\\"')\"
+MAHOUTOMITSCHEMAS=\"(quote_ident('_${SLONYCLUSTER}'), 'nullschema', 'pg_catalog', 'information_schema', quote_ident('MaHoutSchema'))\"
 
 " >> ${TARGETMHDIR}/mahout.conf.keep
     cp ${TARGETMHDIR}/mahout.conf.keep ${TARGETMHDIR}/mahout.conf
