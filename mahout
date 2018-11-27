@@ -490,7 +490,8 @@ function in_mahout_home () {
     if [ -d .mahout-logs ]; then
 	glog user.debug "found .mahout-logs directory"
     else
-	glog user.error ".mahout-logs directory not found"
+	glog user.debug ".mahout-logs directory not found, creating it"
+	mkdir -p .mahout-logs
     fi
     glog user.debug "PSTART: ${PSTART} PROBLEMS: ${PROBLEMS}"
     if [[ ${PSTART} -ne ${PROBLEMS} ]]; then
