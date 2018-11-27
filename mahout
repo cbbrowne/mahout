@@ -472,27 +472,28 @@ function in_mahout_home () {
     # see if we're in a Mahout directory
     local PSTART
     PSTART=${PROBLEMS}
-    if [ -e mahout.control ]; then
-	glog user.debug "found mahout.control"
-    else
-	glog user.error "mahout.control not found"
-    fi
-    if [ -e mahout.conf ]; then
-	glog user.debug "found mahout.conf"
-    else
-	glog user.error "mahout.conf not found"
-    fi
-    if [ -d .mahout-data ]; then
-	glog user.debug "found .mahout-data directory"
-    else
-	glog user.error ".mahout-data directory not found"
-    fi
-    if [ -d .mahout-logs ]; then
-	glog user.debug "found .mahout-logs directory"
-    else
-	glog user.debug ".mahout-logs directory not found, creating it"
-	mkdir -p .mahout-logs
-    fi
+    for file in mahout.control mahout.conf; do
+	if [ -e $file ]; then
+	    glog user.debug "found mandatory Mahout configuration file $file"
+	else
+	    glog user.error "failed to find necessary Mahout configuration file $file"
+	fi
+    done
+    for mdir in .mahout-data; do
+	if [ -d $dir ]; then
+	    glog user.debug "found ${dir} directory"
+	else
+	    glog user.error "Mandatory ${dir} directory not found - ERROR"
+	fi
+    done
+    for dir in .mahout-logs .mahout-temp; do
+	if [ -d $dir ]; then
+	    glog user.debug "found ${dir} directory"
+	else
+	    glog user.debug "${dir} directory not found, creating it"
+	    mkdir $dir
+	fi
+    done
     glog user.debug "PSTART: ${PSTART} PROBLEMS: ${PROBLEMS}"
     if [[ ${PSTART} -ne ${PROBLEMS} ]]; then
 	glog user.error "mahout directory not properly set up"
