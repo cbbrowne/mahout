@@ -2,8 +2,9 @@
 set -e -u
 
 # Let's set up a database and put some schema into it as a Base Schema
+PGPORT=${PGPORT:-7099}
 PGCMPHOME=${PGCMPHOME:-${HOME}/PostgreSQL/pgcmp}
-DBCLUSTER=${DBCLUSTER:-"postgresql://postgres@localhost:7099"}
+DBCLUSTER=${DBCLUSTER:-"postgresql://postgres@localhost:${PGPORT}"}
 MAHOUTHOME=${MAHOUTHOME:-${HOME}/PostgreSQL/mahout}
 TARGETDIR=${TARGETDIR:-"install-target"}
 MAHOUTLOGDIR=${MAHOUTLOG:-"/tmp/mahout-tests"}
@@ -18,7 +19,7 @@ SLONYTEMPSET=3141
 SLONYOMITTABLES='()'
 SLONYOMITSEQUENCES='()'
 SUPERUSER=${SUPERUSER:-"postgres"}
-SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@localhost:7099"}
+SUPERCLUSTER=${SUPERCLUSTER:-"postgresql://${SUPERUSER}@localhost:${PGPORT}"}
 
 if [ -d ${MAHOUTLOGDIR} ]; then
     MAHOUTLOG=${MAHOUTLOGDIR}/mahout.log
