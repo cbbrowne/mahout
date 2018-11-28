@@ -278,6 +278,20 @@ $ slonik .mahout-temp/mahout-ddl-script-1.1.slonik
       - Note that ~mahout.conf~ is handled as a shell script, and, if using bash, quotes will be needed otherwise MAHOUTOMITSCHEMAS will interpret the structure as an array
     - PGCMPHOME :: Indicates the directory where the ~pgcmp~ comparison tool is installed
     - MAHOUTSCHEMA :: Indicates the schema in which to put Mahout version and logging information
+    - MAHOUTSEARCHPATH :: Indicates a value set as the default
+         ~search_path~ at the start of each DDL/DML step.  This is
+         particularly needed when using Slony-I, where the ~slony~
+         user often has no default search path, and, more pointedly,
+         if one DDL/DML script for a version explicitly sets
+         ~search_path~.  
+         - If run via ~mahout upgrade~, the user's default search path
+           will be attached in each step;
+         - If running via ~mahout slonik~, the ~slony~ user's default
+           search path would be attached to the /first/ DDL/DML step;
+           subsequent DDL/DML steps will inherit whatever
+           ~search_path~ is in effect at the end of the previous step.
+         - A ~MAHOUTSEARCHPATH~ value will be attached at the start
+           of each DDL/DML step.
   - Data files
     - In some cases, external data will be needed, /e.g./ - some
       upgrades required a data file indicating configuration of DML
@@ -295,6 +309,7 @@ CONFIG_26=/tmp/redwood-upgrade-2.6.conf
 CONFIG_23y=/tmp/redwood-2.3y-currencies.txt
 CONFIG_2226=/tmp/registrar-guid-map-2.2.26.csv
 CONFIG_22=/tmp/registrar-guid-map-2.2.csv
+MAHOUTSEARCHPATH=public
 #+END_EXAMPLE
 
 ** Contents of mahout.control

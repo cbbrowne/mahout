@@ -7,6 +7,7 @@ PARM2=$3
 MAHOUTOMITSCHEMAS=${MAHOUTOMITSCHEMAS:-${PGCOMITSCHEMAS:-"('pg_catalog','information_schema', quote_ident('${MAHOUTSCHEMA}'))"}}
 PGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-HEAD/bin"}
 MAHOUTCONFIG=${MAHOUTCONFIG:-"mahout.conf"}
+MAHOUTSEARCHPATH=${MAHOUTSEARCHPATH:-"public"}
 
 help () {
     echo "
@@ -127,6 +128,7 @@ function mahout_init () {
     MSU=${SUPERUSERACCESS:-${PGDATABASE:-"SUPERUSERACCESSUNSET"}}
     MCL=${COMPARISONDATABASE:-${PGDATABASE:-"COMPARISONDATABASEUNSET"}}
     PGCH=${PGCMPHOME:-"/home/cbbrowne/PostgreSQL/pgcmp"}
+    MHSP=${MAHOUTSEARCHPATH:-"public"}
     MHSCH=${MAHOUTSCHEMA:-"Mahout"}
     MPGBINDIR=${PGBINDIR:-"/var/lib/postgresql/dbs/postgresql-HEAD/bin"}
     glog user.info "Mahout schema: [${MHSCH}]"
@@ -142,13 +144,15 @@ function mahout_init () {
     MO=${MAHOUTHOME}/mahout.conf
     echo "mahout: setting up mahout repository in mahout directory: [${MO}]"
     echo "mahout: sample mahout.conf in ${MO}"
-    echo "# Sample mahout file" > ${MO}
-    echo "# MAINDATABASE: Main Database being managed by Mahout" >> ${MO}
-    echo "MAINDATABASE=${MDB}" >> ${MO}
-    echo "# SUPERUSERACCESS: Superuser URI for database being managed by Mahout" >> ${MO}
-    echo "SUPERUSERACCESS=${MSU}" >> ${MO}
-    echo "# COMPARISONDATABASE: URI for comparison database to be used for comparisons" >> ${MO}
-    echo "COMPARISONDATABASE=${MCL}" >> ${MO}
+    echo "# Sample mahout file
+# MAINDATABASE: Main Database being managed by Mahout
+MAINDATABASE=${MDB}
+# SUPERUSERACCESS: Superuser URI for database being managed by Mahout
+SUPERUSERACCESS=${MSU}
+# COMPARISONDATABASE: URI for comparison database to be used for comparisons
+COMPARISONDATABASE=${MCL}
+# MAHOUTSEARCHPATH - default search path set at start of each ddl/dml step
+" > ${MO}
 
     GITIGNORE=${MAHOUTHOME}/.gitignore
     echo "# Default git ignores" > ${GITIGNORE}
@@ -164,13 +168,13 @@ function mahout_init () {
 	glog user.warning "Main database connection (MAINDATABASE=[${MDB}] same as Comparison connection (COMPARISONDATABASE=[${MCL}]"
     fi
     
-    echo "# MAHOUTOMITSCHEMAS: set of schemas to ignore for comparisons" >> ${MO}
-    echo "MAHOUTOMITSCHEMAS=\"${MAHOUTOMITSCHEMAS}\"" >> ${MO}
-    echo "# PGCMPHOME: location to find pgcmp, pgcmp-dump" >> ${MO}
-    echo "PGCMPHOME=${PGCH}" >> ${MO}
-    echo "# MAHOUTSCHEMA: which schema to use for Mahout database objects" >> ${MO}
-    echo "MAHOUTSCHEMA=${MHSCH}" >> ${MO}				      
-    echo "PGBINDIR=${PGBINDIR:-\"${MPGBINDIR}\"}" >> ${MO}
+    echo "# MAHOUTOMITSCHEMAS: set of schemas to ignore for comparisons
+MAHOUTOMITSCHEMAS=\"${MAHOUTOMITSCHEMAS}\"
+# PGCMPHOME: location to find pgcmp, pgcmp-dump
+PGCMPHOME=${PGCH}
+# MAHOUTSCHEMA: which schema to use for Mahout database objects
+MAHOUTSCHEMA=${MHSCH}
+PGBINDIR=${PGBINDIR:-\"${MPGBINDIR}\"}" >> ${MO}
 
     for pgm in pgcmp pgcmp-dump; do
 	if [ -x ${PGCH}/${pgm} ]; then
@@ -698,6 +702,9 @@ function mahout_capture () {
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 			action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
 			echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
+			if [[  "x${MAHOUTSEARCHPATH}" != "x" ]]; then
+			    echo "set search_path = ${MAHOUTSEARCHPATH};" >> $TEMPSQLFILE
+			fi
 			cat ${sqlscript} >> ${TEMPSQLFILE}
 			rc=$?
 			case $rc in
@@ -735,11 +742,18 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			cat ${dmlscript} | md5sum > ${dmlscript}.md5sum
 			local predmlcmp=`mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX`
 			local postdmlcmp=`mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX`
+			local tempsqlfile=`mktemp /tmp/mahout-dml-script.XXXXXXXXXXXXXXXX`
 			# Make sure that DML does not modify the schema
 			action_start ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}"
 			dump_current_schema pre-dml $predmlcmp ${MAINDATABASE}
-			
-			$PGBINDIR/psql -d ${MAINDATABASE} -f ${dmlscript} > ./${dmlscript}.${propversion}.log 2>&1
+
+			if [[  "x${MAHOUTSEARCHPATH}" != "x" ]]; then
+			    echo "set search_path = ${MAHOUTSEARCHPATH};" >> $tempsqlfile
+			else
+			    touch $tempsqlfile
+			fi
+			cat $dmlscript >> $tempsqlfile
+			$PGBINDIR/psql -d ${MAINDATABASE} -f ${tempsqlfile} > ./${dmlscript}.${propversion}.log 2>&1
 			dump_current_schema post-dml $postdmlcmp ${MAINDATABASE}
 			PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${predmlcmp} PGCMPINPUT2=${postdmlcmp} PGCLABEL1=pre-dml PGCLABEL2=post-dml ${PGCMPHOME}/pgcmp > /dev/null 2>&1
 			rc=$?
@@ -757,7 +771,7 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 				;;
 			esac
 			action_end ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}" t
-			rm $predmlcmp $postdmlcmp
+			rm $predmlcmp $postdmlcmp $tempsqlfile
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
 			local unixcommand=`echo ${line} | cut -d " " -f 2`
@@ -1208,11 +1222,18 @@ function mahout_install () {
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
 		local sqlscript=`echo ${line} | cut -d " " -f 2`
+		tddl=`mktemp /tmp/mahout-apply-ddl.XXXXXXXXXXXXXX`
+		if [[  "x${MAHOUTSEARCHPATH}" != "x" ]]; then
+		    echo "set search_path = ${MAHOUTSEARCHPATH};" >> $tddl
+		else
+		    touch $tddl
+		fi
+		cat $sqlscript >> $tddl
 		glog user.notice "apply DDL Script ${sqlscript}"
 		md5sum=`md5sum < ${sqlscript}`
 		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 		action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
-		$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${tddl} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
 		    glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
@@ -1221,14 +1242,23 @@ function mahout_install () {
 		else
 		    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" t
 		fi
+		rm -f $tddl
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
 		local sqlscript=`echo ${line} | cut -d " " -f 2`
-		glog user.notice "apply DML Script ${sqlscript}"
+		tdml=`mktemp /tmp/mahout-apply-dml.XXXXXXXXXXXXXX`
+		if [[  "x${MAHOUTSEARCHPATH}" != "x" ]]; then
+		    echo "set search_path = ${MAHOUTSEARCHPATH};" >> $tdml
+		else
+		    touch $tdml
+		fi
+		cat $sqlscript >> $tdml
+		
+		glog user.notice "apply DML Script ${sqlscript} via $tdml"
 		md5sum=`md5sum < ${sqlscript}`
 		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 		action_start $propversion capture "DML script" ${sqlscript} "${md5sum}"
-		$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${tdml} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
 		retcode=$?
 		if [ $retcode -ne 0 ]; then
 		    glog user.error "DML script ${sqlscript} failed against database [${MDB}]"
@@ -1237,6 +1267,7 @@ function mahout_install () {
 		else
 		    action_end ${propversion} "capture" "DML script" "${sqlscript}" "${md5sum}" t
 		fi
+		rm -f $tdml
 	    fi
 	    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
 		local unixcommand=`echo ${line} | cut -d " " -f 2`
@@ -1985,7 +2016,7 @@ cluster name=${SLONYCLUSTER};
 		while read line
 		do
 		    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
-			glog user.debug "no action apropos for version line"
+			glog user.debug "no slonik action apropos for version line"
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
 			vrequires=`echo ${line} | sed "s/^requires[ \t]//"`
@@ -2028,7 +2059,7 @@ analyze dropped_tables;
 			echo "
 create temp table t_dropped_sequences (sequence_name text primary key);
 \COPY t_dropped_sequences (sequence_name) from '${DEADSEQUENCESFILE}';
-analyze dropped_sequences;
+analyze t_dropped_sequences;
 \COPY (select 'set drop sequence (origin=${ORIGINNODEID}, id='|| seq_id || ');' from \"_${SLONYCLUSTER}\".sl_sequence where exists (select 1 from t_dropped_sequences where sequence_name = quote_ident(seq_nspname) || '.' || quote_ident(seq_relname))) to '${DROPSEQUENCESSLONIK}';
 " > $DROPSEQUENCESSQL
 
@@ -2105,10 +2136,22 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 			SLEXECPREFIX=$PWD/.mahout-temp/slonik-pre-action-log-${propversion}-${SLACTIONS}.sql
 			echo "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', clock_timestamp(), 'slonik', 'DDL script', '${sqlscript}', '${md5sum}');" > $SLEXECPREFIX
 			echo "execute script (filename='${SLEXECPREFIX}', event node=$ORIGINNODEID);echo 'begin action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
-			echo "execute script (filename='${sqlscript}', event node=$ORIGINNODEID);echo 'Invoke DDL: ${sqlscript}';" >> $DDLEXECUTESLONIK
+
+			tddl="$PWD/${sqlscript}-prefixed"
+			if [[  "x${MAHOUTSEARCHPATH}" != "x" ]]; then
+			    glog user.notice "setting search_path in $tddl"
+			    echo "set search_path = ${MAHOUTSEARCHPATH};" > $tddl
+			else
+			    glog user.notice "NOT setting search_path in $tddl"
+			    echo "" > $tddl
+			fi
+			cat ${sqlscript} >> $tddl
+
+			echo "execute script (filename='${tddl}', event node=$ORIGINNODEID);echo 'Invoke DDL: ${sqlscript}';" >> $DDLEXECUTESLONIK
 			SLEXECSUFFIX=$PWD/.mahout-temp/slonik-post-action-log-${propversion}-${SLACTIONS}.sql
 			echo "update \"${MAHOUTSCHEMA}\".action_log set result='completed', success='true', action_end=clock_timestamp() where version='${propversion}' and action='slonik' and action_type='DDL script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_end is null;" > $SLEXECSUFFIX
 			echo "execute script (filename='${SLEXECSUFFIX}', event node=$ORIGINNODEID); echo 'complete action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
+			rm $tddl
 		    fi
 
 		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
@@ -2133,10 +2176,17 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 		    if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
 			local dmlscript=`echo ${line} | cut -d " " -f 2`
 			local dmlarg=`echo ${line} | cut -d " " -f 3`
+			local tdml=`mktemp /tmp/mahout-prefixed-dml.XXXXXXXXXXXXXXXX`
 			cat ${dmlscript} | md5sum > ${dmlscript}.md5sum
+			if [[  "x${MAHOUTSEARCHPATH}" != "x" ]]; then
+			    echo "set search_path = ${MAHOUTSEARCHPATH};" >> $tdml
+			else
+			    touch $tdml
+			fi
+			cat $dmlscript >> $tdml
 			
 			action_start ${propversion} "slonik" "dml script" "${dmlscript}" "${md5sum}"
-			$PGBINDIR/psql -d $MAINDATABASE -f ${dmlscript} > ${dmlscript}.${propversion}.log 2>&1
+			$PGBINDIR/psql -d $MAINDATABASE -f ${tdml} > ${dmlscript}.${propversion}.log 2>&1
 			rc=$?
 			# check return code, various possible actions...
 
@@ -2150,6 +2200,7 @@ wait for event (origin=$ORIGINNODEID, confirmed=ALL, wait on=$provider);echo 'wa
 			    subconninfo=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QSUBCONN}"`
 			    $PGBINDIR/psql -d "${subconninfo}" -c "insert into action_log(action_start, action_end, action, version, action_type, action_source, result, action_md5, success) values (now(), now(), 'slonik', '${propversion}', 'dml script - replica', '${dmlscript}', '${md5sum}','t');"
 			done
+			rm $tdml
 		    fi
 		    
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then

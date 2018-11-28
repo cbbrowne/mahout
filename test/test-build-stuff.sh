@@ -152,7 +152,7 @@ function purge_mahout_and_check_reqts () {
 function mahout_init () {
     glog user.notice "Do mahout init to capture that base schema"
 
-    MAHOUTSCHEMA=MaHoutSchema PGCMPHOME=${PGCMPHOME} MAINDATABASE=${devuri} SUPERUSERACCESS=${SUPERCLUSTER}/${devdb} COMPARISONDATABASE=${compuri} ${MAHOUT} init ${PROJECTNAME}
+    MAHOUTSEARCHPATH=public MAHOUTSCHEMA=MaHoutSchema PGCMPHOME=${PGCMPHOME} MAINDATABASE=${devuri} SUPERUSERACCESS=${SUPERCLUSTER}/${devdb} COMPARISONDATABASE=${compuri} ${MAHOUT} init ${PROJECTNAME}
 }
 
 function empty_capture () {
