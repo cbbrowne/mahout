@@ -274,7 +274,7 @@ $ slonik .mahout-temp/mahout-ddl-script-1.1.slonik
     - SUPERUSERACCESS :: Contains the URI to be used for anything requiring superuser access
     - COMPARISONDATABASE :: This indicates the URI of a database suitable for doing comparisons using pgcmp
     - MAHOUTOMITSCHEMAS :: This indicates a set of schemas that are to be ignored when ~pgcmp~ is being used to do comparisons.
-      - It is formatted as an SQL IN clause, so should look like ('pg_catalog','information_schema','"MaHoutSchema"')
+      - It is formatted as an SQL VALUES clause, so should look like ('pg_catalog'),('information_schema'),('MaHoutSchema')
       - Note that ~mahout.conf~ is handled as a shell script, and, if using bash, quotes will be needed otherwise MAHOUTOMITSCHEMAS will interpret the structure as an array
     - PGCMPHOME :: Indicates the directory where the ~pgcmp~ comparison tool is installed
     - MAHOUTSCHEMA :: Indicates the schema in which to put Mahout version and logging information
@@ -300,7 +300,7 @@ $ slonik .mahout-temp/mahout-ddl-script-1.1.slonik
 
 #+BEGIN_EXAMPLE
 COMPARISONDATABASE=postgresql://postgres@localhost:7099/comparisondb
-MAHOUTOMITSCHEMAS="('pg_catalog','information_schema','MaHoutSchema')"
+MAHOUTOMITSCHEMAS="('pg_catalog'),('information_schema'),('MaHoutSchema')"
 MAHOUTSCHEMA=MaHoutSchema
 MAINDATABASE=postgresql://postgres@localhost:7099/devdb
 PGCMPHOME=/home/cbbrowne/PostgreSQL/pgcmp

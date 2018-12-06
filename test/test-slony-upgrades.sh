@@ -353,7 +353,7 @@ SLONYMAINSET=${SLONYMAINSET}
 SLONYTEMPSET=${SLONYTEMPSET}
 SLONYOMITSEQUENCES=${SLONYOMITSEQUENCES}
 SLONYOMITTABLES=${SLONYOMITTABLES}
-MAHOUTOMITSCHEMAS=\"(quote_ident('_${SLONYCLUSTER}'), 'nullschema', 'pg_catalog', 'information_schema', quote_ident('MaHoutSchema'))\"
+MAHOUTOMITSCHEMAS=\"('nullschema'),('MaHoutSchema')\"
 
 " >> ${TARGETMHDIR}/mahout.conf.keep
     cp ${TARGETMHDIR}/mahout.conf.keep ${TARGETMHDIR}/mahout.conf
@@ -399,6 +399,7 @@ function install_v11_on_cluster () {
     (cd ${TARGETMHDIR}
      ${MAHOUT} slonik
      glog user.notice "Prepped slonik: .mahout-temp/mahout-ddl-script-1.1.slonik"
+     exit
      ${PGBINDIR}/slonik .mahout-temp/mahout-ddl-script-1.1.slonik
      glog user.notice "Completed slonik for v1.1"
     )
@@ -550,19 +551,19 @@ function install_v15_on_cluster () {
 }
  
 # Start...
-kill_all_slons
-drop_and_recreate_databases
-set_up_preamble
-initialize_slony_nodes
-store_paths
-launch_slons
-subscribe_initial_set
-initial_mahout_schema
-capture_null
-common_tests
-install_target
-fix_install_uri
-attach_base_to_replicas
+# kill_all_slons
+# drop_and_recreate_databases
+# set_up_preamble
+# initialize_slony_nodes
+# store_paths
+# launch_slons
+# subscribe_initial_set
+# initial_mahout_schema
+# capture_null
+# common_tests
+# install_target
+# fix_install_uri
+# attach_base_to_replicas
 prep_v11
 capture_v11
 install_v11_on_cluster
