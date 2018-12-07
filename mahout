@@ -1998,7 +1998,7 @@ cluster name=${SLONYCLUSTER};
 			mkdir -p $PGCMPWORK
 			PGBINDIR=${PGBINDIR} PGCLABEL1=$vrequires PGCLABEL2=$propversion PGURI=${COMPARISONDATABASE} PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPINPUT1=.mahout-data/${vrequires}.pgcmp PGCMPINPUT2=.mahout-data/${propversion}.pgcmp PGCWORKDIR=${PGCMPWORK} PGCMPIGNORESLONYTRIGGERS=true  ${PGCMPHOME}/pgcmp
 			rc=$?
-			glog user.notice "pgcmp rc=${rc}, expecting non-zero as we expect a difference"
+			glog user.notice "pgcmp rc=${rc}, expecting non-zero as we expect a difference; we wanted to load the data for 2 different schema versions in order to work with the differences"
 			# Now, figure out the tables to be dropped
 			DEADTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.txt
 			DEADTABLESQUERY="\COPY (select object_name from unexplained_items where object_type = 'table' and difference_type = 'missing in 2nd DB') to '${DEADTABLESFILE}';"
@@ -2010,14 +2010,24 @@ cluster name=${SLONYCLUSTER};
 			DROPTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.slonik
 			DROPTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.sql
 			echo "
-create temp table dropped_tables (table_name text primary key);
-\COPY dropped_tables (table_name) from '${DEADTABLESFILE}';
-analyze dropped_tables;
-\COPY (select 'set drop table (origin=${ORIGINNODEID}, id='|| tab_id || ');' from \"_${SLONYCLUSTER}\".sl_table where exists (select 1 from dropped_tables where table_name = quote_ident(tab_nspname) || '.' || quote_ident(tab_relname))) to '${DROPTABLESSLONIK}';
+drop table if exists t_dropped_tables, t_droptab_slonik;
+create temp table t_dropped_tables (table_name text primary key, slony_id integer);
+\COPY t_dropped_tables (table_name) from '${DEADTABLESFILE}';
+analyze t_dropped_tables;
+update t_dropped_tables set slony_id = (select tab_id from \"_${SLONYCLUSTER}\".sl_table
+     where table_name = quote_ident(tab_nspname) || '.' || quote_ident(tab_relname));
+create temp table t_droptab_slonik (table_name text, slonik text, tab_id integer, echo_text text);
+insert into t_droptab_slonik (table_name, slonik, tab_id, echo_text)
+select table_name, 'set drop table (origin=${ORIGINNODEID}, id='|| 
+     case when slony_id is null then 'TBD' else slony_id::text end || ');', slony_id,
+     'echo ' || quote_literal('drop table ' || table_name) || ';'
+from t_dropped_tables;
+\COPY (select slonik || echo_text from t_droptab_slonik) to '${DROPTABLESSLONIK}';
 " > $DROPTABLESSQL
 
 			$PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPTABLESSQL}"
-
+			DTCOUNT=`wc -l < $DROPTABLESSLONIK`
+			glog user.notice "Slonik script handles [${DTCOUNT}] dead tables"
 			DEADSEQUENCESFILE=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.txt
 			DEADSEQUENCEQUERY="\COPY (select object_name from unexplained_items where object_type = 'sequence' and difference_type = 'missing in 2nd DB') to '${DEADSEQUENCESFILE}';"
 			glog user.notice "Dump via $DEADSEQUENCEQUERY"
@@ -2028,10 +2038,20 @@ analyze dropped_tables;
 			DROPSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.slonik
 			DROPSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.sql
 			echo "
-create temp table t_dropped_sequences (sequence_name text primary key);
+drop table if exists t_dropped_sequences, t_dropseq_slonik;
+create temp table t_dropped_sequences (sequence_name text primary key, slony_id integer);
 \COPY t_dropped_sequences (sequence_name) from '${DEADSEQUENCESFILE}';
 analyze t_dropped_sequences;
-\COPY (select 'set drop sequence (origin=${ORIGINNODEID}, id='|| seq_id || ');' from \"_${SLONYCLUSTER}\".sl_sequence where exists (select 1 from t_dropped_sequences where sequence_name = quote_ident(seq_nspname) || '.' || quote_ident(seq_relname))) to '${DROPSEQUENCESSLONIK}';
+update t_dropped_sequences set slony_id = (select seq_id from \"_${SLONYCLUSTER}\".sl_sequence
+     where sequence_name = quote_ident(seq_nspname) || '.' || quote_ident(seq_relname));
+create temp table t_dropseq_slonik (sequence text, slonik text, seq_id integer, echo_text text);
+insert into t_dropseq_slonik (sequence, slonik, seq_id, echo_text)
+select sequence_name, 'set drop sequence (origin=${ORIGINNODEID}, id='|| 
+     case when slony_id is null then 'TBD' else slony_id::text end || ');', slony_id,
+     'echo ' || quote_literal('drop sequence ' || sequence_name) || ';'
+from t_dropped_sequences;
+
+\COPY (select slonik || echo_text from t_dropseq_slonik) to '${DROPSEQUENCESSLONIK}';
 " > $DROPSEQUENCESSQL
 
 			$PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPSEQUENCESSQL}"
