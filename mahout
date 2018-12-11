@@ -120,7 +120,7 @@ function mahout_pgcmp () {
     local LABEL2=$4
     local IGNORESLONY=$5
 
-    PGBINDIR=$PGBINDIR PGURI=$COMPARISONDATABASE PGCMPINPUT1=$IFILE1 PGCMPINPUT2=$IFILE2 PGURI=$COMPARISONDATABASE PGCMPIGNORESLONYTRIGGERS=$IGNORESLONY ${PGCMPHOME}/pgcmp
+    PGBINDIR=$PGBINDIR PGURI=$COMPARISONDATABASE PGCMPINPUT1=$IFILE1 PGCMPINPUT2=$IFILE2 PGURI=$COMPARISONDATABASE PGCMPIGNORESLONYTRIGGERS=$IGNORESLONY PGCLABEL1=$LABEL1 PGCLABEL2=$LABEL2 PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} ${PGCMPHOME}/pgcmp
     rc=$?
     case $rc in
 	2)
@@ -144,7 +144,7 @@ function mahout_pgcmp_nodeprobs () {
     local LABEL2=$4
     local IGNORESLONY=$5
 
-    PGBINDIR=$PGBINDIR PGURI=$COMPARISONDATABASE PGCMPINPUT1=$IFILE1 PGCMPINPUT2=$IFILE2 PGCMPIGNORESLONYTRIGGERS=$IGNORESLONY ${PGCMPHOME}/pgcmp
+    PGBINDIR=$PGBINDIR PGURI=$COMPARISONDATABASE PGCMPINPUT1=$IFILE1 PGCMPINPUT2=$IFILE2 PGCLABEL1=$LABEL1 PGCLABEL2=$LABEL2 PGCOMITSCHEMAS=${MAHOUTOMITSCHEMAS} PGCMPIGNORESLONYTRIGGERS=$IGNORESLONY ${PGCMPHOME}/pgcmp
     rc=$?
     case $rc in
 	2)
@@ -1805,115 +1805,115 @@ function mahout_slonik () {
 	    exit 1
     esac
 
-	# Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
-	local depfodder=$PWD/.mahout-temp/mahout-slonik-dependency-fodder
-	local dependencies=$PWD/.mahout-temp/mahout-slonik-dependencies
-	local versionorder=$PWD/.mahout-temp/mahout-slonik-version-order
-	local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-slonik-version-content.XXXXXXXXXXXX`
-	local slonikscript=${PWD}/.mahout-temp/slonik-from-${DBVERSION}.slonik
+    # Very similar to mahout_capture, except that it doesn't write out md5sum/pgcmp output
+    local depfodder=$PWD/.mahout-temp/mahout-slonik-dependency-fodder
+    local dependencies=$PWD/.mahout-temp/mahout-slonik-dependencies
+    local versionorder=$PWD/.mahout-temp/mahout-slonik-version-order
+    local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-slonik-version-content.XXXXXXXXXXXX`
+    local slonikscript=${PWD}/.mahout-temp/slonik-from-${DBVERSION}.slonik
 
-	# Find the shape of the cluster, because we need to SUBSCRIBE SET for each relevant node
-	# SLONYCLUSTER
-	CLSHAPEQ="select sub_provider, sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
-	SHAPEFILE=$PWD/.mahout-temp/slony-node-orderings-src.txt
-	NODEORDERFILE=$PWD/.mahout-temp/slony-node-orderings.txt
-	$PGBINDIR/psql -d "${MAINDATABASE}" -qAt --field-separator=" " -c "${CLSHAPEQ}" > $SHAPEFILE
-	glog user.info "Generated $SHAPEFILE with list of subscriptions for replication set $SLONYMAINSET"
-	tsort < $SHAPEFILE > $NODEORDERFILE
-	glog user.info "Generated $NODEORDERFILE with order of subscriptions for replication set $SLONYMAINSET"
+    # Find the shape of the cluster, because we need to SUBSCRIBE SET for each relevant node
+    # SLONYCLUSTER
+    CLSHAPEQ="select sub_provider, sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
+    SHAPEFILE=$PWD/.mahout-temp/slony-node-orderings-src.txt
+    NODEORDERFILE=$PWD/.mahout-temp/slony-node-orderings.txt
+    $PGBINDIR/psql -d "${MAINDATABASE}" -qAt --field-separator=" " -c "${CLSHAPEQ}" > $SHAPEFILE
+    glog user.info "Generated $SHAPEFILE with list of subscriptions for replication set $SLONYMAINSET"
+    tsort < $SHAPEFILE > $NODEORDERFILE
+    glog user.info "Generated $NODEORDERFILE with order of subscriptions for replication set $SLONYMAINSET"
 
-	# What all do we need?
-	#   - figure out origin node ID - ORIGINNODEID
-	local ORIGINNODEID
-	QORIGIN="select set_origin from \"_${SLONYCLUSTER}\".sl_set where set_id = ${SLONYMAINSET};"
-	ORIGINNODEID=`$PGBINDIR/psql -d $MAINDATABASE -qAt -c "${QORIGIN}"`
-	rc=$?
-	case ${rc} in
-	    0)
-		glog user.info "Found origin node ID: ${ORIGINNODEID}"
-		;;
-	    1)
-		glog user.error "Fatal error finding node origin ID"
-		exit 1
-		;;
-	    2)
-		glog user.error "Error querying node origin ID"
-		exit 1
-		;;
-	    3)
-		glog user.error "Error querying node origin ID"
-		exit 1
-		;;
-	esac
-	#   - slony preamble, already gotten earlier
-	#      cluster name=$SLONYCLUSTER;
-	#        plus per-node
-	#      node $nodenum admin conninfo='something'
-	SLONIKPREAMBLE=${PWD}/.mahout-temp/mahout-preamble.slonik
-	echo "
+    # What all do we need?
+    #   - figure out origin node ID - ORIGINNODEID
+    local ORIGINNODEID
+    QORIGIN="select set_origin from \"_${SLONYCLUSTER}\".sl_set where set_id = ${SLONYMAINSET};"
+    ORIGINNODEID=`$PGBINDIR/psql -d $MAINDATABASE -qAt -c "${QORIGIN}"`
+    rc=$?
+    case ${rc} in
+	0)
+	    glog user.info "Found origin node ID: ${ORIGINNODEID}"
+	    ;;
+	1)
+	    glog user.error "Fatal error finding node origin ID"
+	    exit 1
+	    ;;
+	2)
+	    glog user.error "Error querying node origin ID"
+	    exit 1
+	    ;;
+	3)
+	    glog user.error "Error querying node origin ID"
+	    exit 1
+	    ;;
+    esac
+    #   - slony preamble, already gotten earlier
+    #      cluster name=$SLONYCLUSTER;
+    #        plus per-node
+    #      node $nodenum admin conninfo='something'
+    SLONIKPREAMBLE=${PWD}/.mahout-temp/mahout-preamble.slonik
+    echo "
 cluster name=${SLONYCLUSTER};
 " > $SLONIKPREAMBLE
-	QNODES="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set = $SLONYMAINSET
+    QNODES="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set = $SLONYMAINSET
                             union select sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set = $SLONYMAINSET;"
-	nodes=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QNODES}" | sort -n`
-	for node in `echo $nodes`; do
-	    QPATH="select min(pa_conninfo) from \"_${SLONYCLUSTER}\".sl_path where pa_server=$node;"
-	    conninfo=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QPATH}"`
-	    echo "node ${node} admin conninfo='${conninfo}';" >> $SLONIKPREAMBLE
-	done
+    nodes=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QNODES}" | sort -n`
+    for node in `echo $nodes`; do
+	QPATH="select min(pa_conninfo) from \"_${SLONYCLUSTER}\".sl_path where pa_server=$node;"
+	conninfo=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QPATH}"`
+	echo "node ${node} admin conninfo='${conninfo}';" >> $SLONIKPREAMBLE
+    done
 
-	calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
-	glog user.notice "calced dependencies"
-	split_versions ${versioncontent}
-	glog user.notice "captured versions into ${versioncontent}"
+    calculate_dependencies ${depfodder} ${dependencies} ${versionorder}
+    glog user.notice "calced dependencies"
+    split_versions ${versioncontent}
+    glog user.notice "captured versions into ${versioncontent}"
 
-	# need get_mahout_version
-	local DBVERSION=`get_mahout_version "${MAINDATABASE}"`
-	glog user.notice "Main database on Mahout verson $DBVERSION"
-	
-	versionswanted=false
-	for propversion in `cat ${versionorder}`; do
-	    if [[ $propversion == ${DBVERSION} ]]; then
-		# We have reached the point at which versions should get captured
-		versionswanted=true
-		glog user.notice "Capture examining versions to apply - already have ${propversion}"
-	    else
-		if [[ $versionswanted == "true" ]]; then
-		    # need to apply scripts to the database
-		    glog user.notice "Slonik needs to apply version ${propversion}"
+    # need get_mahout_version
+    local DBVERSION=`get_mahout_version "${MAINDATABASE}"`
+    glog user.notice "Main database on Mahout verson $DBVERSION"
+    
+    versionswanted=false
+    for propversion in `cat ${versionorder}`; do
+	if [[ $propversion == ${DBVERSION} ]]; then
+	    # We have reached the point at which versions should get captured
+	    versionswanted=true
+	    glog user.notice "Capture examining versions to apply - already have ${propversion}"
+	else
+	    if [[ $versionswanted == "true" ]]; then
+		# need to apply scripts to the database
+		glog user.notice "Slonik needs to apply version ${propversion}"
 
-		    # Need to do this against each node, but much later!
-		    # version_load_start ${propversion}
-		    SLACTIONS=0
-		    
-		    glog user.notice "From script ${versioncontent}/${propversion}"
-		    while read line
-		    do
-			if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
-			    glog user.debug "no action apropos for version line"
-			fi
-			if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
-			    vrequires=`echo ${line} | sed "s/^requires[ \t]//"`
-			    # This is where to do the pgcmp run to find tables/sequences
-			    # added/dropped
-			    # load old version in .mahout-data/$vrequires.pgcmp
-			    # load new version in .mahout-data/$propversion.pgcmp
-			    glog user.notice "Comparing $vrequires to $propversion to find objects to add/drop from replication"
-			    PGCMPWORK=$PWD/.mahout-temp/mahout-attach-pgcmp-work
-			    mkdir -p $PGCMPWORK
-			    glog user.notice "pgcmp expecting non-zero as we expect a difference; we wanted to load the data for 2 different schema versions in order to work with the differences"
-			    PGCWORKDIR=$PGCMPWORK mahout_pgcmp_nodeprobs .mahout-data/${vrequires}.pgcmp .mahout-data/${propversion}.pgcmp $vrequires $propversion true
-			    # Now, figure out the tables to be dropped
-			    DEADTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.txt
-			    DEADTABLESQUERY="\COPY (select object_name from unexplained_items where object_type = 'table' and difference_type = 'missing in 2nd DB') to '${DEADTABLESFILE}';"
-			    glog user.notice "Dump via $DEADTABLESQUERY"
-			    glog user.notice "Dump to $DEADTABLESFILE"
-			    $PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADTABLESQUERY}"
-			    DTCOUNT=`wc -l < $DEADTABLESFILE`
-			    glog user.notice "Found [${DTCOUNT}] dead tables"
-			    DROPTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.slonik
-			    DROPTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.sql
-			    echo "
+		# Need to do this against each node, but much later!
+		# version_load_start ${propversion}
+		SLACTIONS=0
+		
+		glog user.notice "From script ${versioncontent}/${propversion}"
+		while read line
+		do
+		    if [[ $(echo ${line} | egrep -c "^version ") -eq 1 ]]; then
+			glog user.debug "no action apropos for version line"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^requires ") -eq 1 ]]; then
+			vrequires=`echo ${line} | sed "s/^requires[ \t]//"`
+			# This is where to do the pgcmp run to find tables/sequences
+			# added/dropped
+			# load old version in .mahout-data/$vrequires.pgcmp
+			# load new version in .mahout-data/$propversion.pgcmp
+			glog user.notice "Comparing $vrequires to $propversion to find objects to add/drop from replication"
+			PGCMPWORK=$PWD/.mahout-temp/mahout-attach-pgcmp-work
+			mkdir -p $PGCMPWORK
+			glog user.notice "pgcmp expecting non-zero as we expect a difference; we wanted to load the data for 2 different schema versions in order to work with the differences"
+			PGCWORKDIR=$PGCMPWORK mahout_pgcmp_nodeprobs .mahout-data/${vrequires}.pgcmp .mahout-data/${propversion}.pgcmp $vrequires $propversion true
+			# Now, figure out the tables to be dropped
+			DEADTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.txt
+			DEADTABLESQUERY="\COPY (select object_name from unexplained_items where object_type = 'table' and difference_type = 'missing in 2nd DB') to '${DEADTABLESFILE}';"
+			glog user.notice "Dump via $DEADTABLESQUERY"
+			glog user.notice "Dump to $DEADTABLESFILE"
+			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADTABLESQUERY}"
+			DTCOUNT=`wc -l < $DEADTABLESFILE`
+			glog user.notice "Found [${DTCOUNT}] dead tables"
+			DROPTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.slonik
+			DROPTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.sql
+			echo "
 drop table if exists t_dropped_tables, t_droptab_slonik;
 create temp table t_dropped_tables (table_name text primary key, slony_id integer);
 \COPY t_dropped_tables (table_name) from '${DEADTABLESFILE}';
@@ -1929,19 +1929,19 @@ from t_dropped_tables;
 \COPY (select slonik || echo_text from t_droptab_slonik) to '${DROPTABLESSLONIK}';
 " > $DROPTABLESSQL
 
-			    $PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPTABLESSQL}"
-			    DTCOUNT=`wc -l < $DROPTABLESSLONIK`
-			    glog user.notice "Slonik script handles [${DTCOUNT}] dead tables"
-			    DEADSEQUENCESFILE=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.txt
-			    DEADSEQUENCEQUERY="\COPY (select object_name from unexplained_items where object_type = 'sequence' and difference_type = 'missing in 2nd DB') to '${DEADSEQUENCESFILE}';"
-			    glog user.notice "Dump via $DEADSEQUENCEQUERY"
-			    glog user.notice "Dump to $DEADSEQUENCESFILE"
-			    $PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADSEQUENCEQUERY}"
-			    DSCOUNT=`wc -l < $DEADSEQUENCESFILE`
-			    glog user.notice "Found [${DSCOUNT}] dead sequences"
-			    DROPSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.slonik
-			    DROPSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.sql
-			    echo "
+			$PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPTABLESSQL}"
+			DTCOUNT=`wc -l < $DROPTABLESSLONIK`
+			glog user.notice "Slonik script handles [${DTCOUNT}] dead tables"
+			DEADSEQUENCESFILE=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.txt
+			DEADSEQUENCEQUERY="\COPY (select object_name from unexplained_items where object_type = 'sequence' and difference_type = 'missing in 2nd DB') to '${DEADSEQUENCESFILE}';"
+			glog user.notice "Dump via $DEADSEQUENCEQUERY"
+			glog user.notice "Dump to $DEADSEQUENCESFILE"
+			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADSEQUENCEQUERY}"
+			DSCOUNT=`wc -l < $DEADSEQUENCESFILE`
+			glog user.notice "Found [${DSCOUNT}] dead sequences"
+			DROPSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.slonik
+			DROPSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.sql
+			echo "
 drop table if exists t_dropped_sequences, t_dropseq_slonik;
 create temp table t_dropped_sequences (sequence_name text primary key, slony_id integer);
 \COPY t_dropped_sequences (sequence_name) from '${DEADSEQUENCESFILE}';
@@ -1958,15 +1958,15 @@ from t_dropped_sequences;
 \COPY (select slonik || echo_text from t_dropseq_slonik) to '${DROPSEQUENCESSLONIK}';
 " > $DROPSEQUENCESSQL
 
-			    $PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPSEQUENCESSQL}"
-			    glog user.notice "Generated slonik to dead sequences"
-			    
-			    NEWTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.txt
-			    TABLESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'table' and difference_type='missing in 1st DB') to '${NEWTABLESFILE}';"
-			    $PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
-			    NEWTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.slonik
-			    NEWTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.sql
-			    echo "
+			$PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPSEQUENCESSQL}"
+			glog user.notice "Generated slonik to dead sequences"
+			
+			NEWTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.txt
+			TABLESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'table' and difference_type='missing in 1st DB') to '${NEWTABLESFILE}';"
+			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
+			NEWTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.slonik
+			NEWTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.sql
+			echo "
 create temp table t_added_tables (table_name text primary key);
 \copy t_added_tables (table_name) from '${NEWTABLESFILE}';
 analyze t_added_tables;		 
@@ -1974,19 +1974,19 @@ create temp table t_slonik_code as
 select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|| quote_literal('^'||table_name||'\$') || '); echo '|| quote_literal(table_name) ||  ';' as slonik from t_added_tables;
 \copy (select slonik from t_slonik_code) to '${NEWTABLESSLONIK}';
 " > $NEWTABLESSQL
-			    $PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
-			    NTCOUNT=`wc -l < $NEWTABLESFILE`
-			    glog user.notice "Found [${NTCOUNT}] new tables to be added to replication"
-			    $PGBINDIR/psql -d ${MAINDATABASE} -f "${NEWTABLESSQL}"
-			    glog user.notice "Generated Slonik for new tables"
+			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
+			NTCOUNT=`wc -l < $NEWTABLESFILE`
+			glog user.notice "Found [${NTCOUNT}] new tables to be added to replication"
+			$PGBINDIR/psql -d ${MAINDATABASE} -f "${NEWTABLESSQL}"
+			glog user.notice "Generated Slonik for new tables"
 
-			    NEWSEQUENCESFILE=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.txt
-			    SEQUENCESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'sequence' and difference_type='missing in 1st DB') to '${NEWSEQUENCESFILE}';"
-			    $PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${SEQUENCESADDEDSQL}"
+			NEWSEQUENCESFILE=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.txt
+			SEQUENCESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'sequence' and difference_type='missing in 1st DB') to '${NEWSEQUENCESFILE}';"
+			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${SEQUENCESADDEDSQL}"
 
-			    NEWSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.slonik
-			    NEWSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.sql
-			    echo "
+			NEWSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.slonik
+			NEWSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.sql
+			echo "
 create temp table t_added_sequences (sequence_name text primary key);
 \copy t_added_sequences (sequence_name) from '${NEWSEQUENCESFILE}';
  analyze t_added_sequences;
@@ -1994,127 +1994,127 @@ create temp table t_slonik_code as
 select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequences='|| quote_literal(sequence_name) || ');echo '|| quote_literal(sequence_name) ||  ';' as slonik from t_added_sequences;
 \copy (select slonik from t_slonik_code) to '${NEWSEQUENCESSLONIK}';
 " > $NEWSEQUENCESSQL
-			    $PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${SEQUENCESADDEDSQL}"
-			    NSCOUNT=`wc -l < $NEWSEQUENCESFILE`
-			    glog user.notice "Found [${NSCOUNT}] new sequences to be added to replication"
-			    $PGBINDIR/psql -d ${MAINDATABASE} -f "${NEWSEQUENCESSQL}"
-			    glog user.notice "Generated Slonik for new sequences"
-			    
-			    DDLADDSET=$PWD/.mahout-temp/mahout-ddl-add-set-${propversion}.slonik
-			    echo "create set (id=${SLONYTEMPSET}, origin=${ORIGINNODEID}, comment='Temporary set for Mahout to add data for version ${propversion}');" > $DDLADDSET
+			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${SEQUENCESADDEDSQL}"
+			NSCOUNT=`wc -l < $NEWSEQUENCESFILE`
+			glog user.notice "Found [${NSCOUNT}] new sequences to be added to replication"
+			$PGBINDIR/psql -d ${MAINDATABASE} -f "${NEWSEQUENCESSQL}"
+			glog user.notice "Generated Slonik for new sequences"
+			
+			DDLADDSET=$PWD/.mahout-temp/mahout-ddl-add-set-${propversion}.slonik
+			echo "create set (id=${SLONYTEMPSET}, origin=${ORIGINNODEID}, comment='Temporary set for Mahout to add data for version ${propversion}');" > $DDLADDSET
 
-			    DDLSLONIK=$PWD/.mahout-temp/mahout-ddl-script-${propversion}.slonik
-			    
-			    DDLEXECUTESLONIK=$PWD/.mahout-temp/mahout-ddl-execute-script-${propversion}.slonik
+			DDLSLONIK=$PWD/.mahout-temp/mahout-ddl-script-${propversion}.slonik
+			
+			DDLEXECUTESLONIK=$PWD/.mahout-temp/mahout-ddl-execute-script-${propversion}.slonik
 
-			    SLVERSIONPREFIX=$PWD/.mahout-temp/slonik-log-version-prefix-${propversion}.sql
-			    echo "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', clock_timestamp());" > $SLVERSIONPREFIX
-			    echo "execute script (event node=${ORIGINNODEID}, filename='${SLVERSIONPREFIX}');echo 'Distribute version_log insert via EXECUTE SCRIPT';" > $DDLEXECUTESLONIK
-			    
-			    SUBSCRIBESETS=$PWD/.mahout-temp/slonik-subscribe-sets-${propversion}.slonik
-			    echo "echo 'Subscribe nodes to temporary replication set ${SLONYTEMPSET}';" > $SUBSCRIBESETS
-			    for node in `cat $NODEORDERFILE`; do
-				if [[ $node -ne $ORIGINNODEID ]]; then
-				    QPROVIDER="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET} and sub_receiver=${node};"
-				    provider=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QPROVIDER}"`
-				    echo "subscribe set (id=${SLONYTEMPSET}, provider=$provider, receiver=$node, forward=yes);echo 'subscribing node ${node} to replication set ${SLONYTEMPSET}'; sync (id=${ORIGINNODEID});
+			SLVERSIONPREFIX=$PWD/.mahout-temp/slonik-log-version-prefix-${propversion}.sql
+			echo "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', clock_timestamp());" > $SLVERSIONPREFIX
+			echo "execute script (event node=${ORIGINNODEID}, filename='${SLVERSIONPREFIX}');echo 'Distribute version_log insert via EXECUTE SCRIPT';" > $DDLEXECUTESLONIK
+			
+			SUBSCRIBESETS=$PWD/.mahout-temp/slonik-subscribe-sets-${propversion}.slonik
+			echo "echo 'Subscribe nodes to temporary replication set ${SLONYTEMPSET}';" > $SUBSCRIBESETS
+			for node in `cat $NODEORDERFILE`; do
+			    if [[ $node -ne $ORIGINNODEID ]]; then
+				QPROVIDER="select sub_provider from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET} and sub_receiver=${node};"
+				provider=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QPROVIDER}"`
+				echo "subscribe set (id=${SLONYTEMPSET}, provider=$provider, receiver=$node, forward=yes);echo 'subscribing node ${node} to replication set ${SLONYTEMPSET}'; sync (id=${ORIGINNODEID});
 sync (id=${ORIGINNODEID});
 wait for event (origin=${ORIGINNODEID}, confirmed=$node, wait on=$node);echo 'waited for completion of node ${node} subscription';
 " >> $SUBSCRIBESETS
-				fi
-			    done
-			    echo "echo 'Merge temporary set ${SLONYTEMPSET} into main set ${SLONYMAINSET}'; merge set (id=${SLONYMAINSET}, add id=${SLONYTEMPSET}, origin=$ORIGINNODEID); echo '${SLONYTEMPSET} merged';" >> $SUBSCRIBESETS
-			fi
-			if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
-			    local sqlscript=`echo ${line} | cut -d " " -f 2`
-			    glog user.notice "add DDL Script ${sqlscript}"
-			    md5sum=`md5sum < ${sqlscript}`
-			    SLACTIONS=$(( $SLACTIONS+1 ))
-			    SLEXECPREFIX=$PWD/.mahout-temp/slonik-pre-action-log-${propversion}-${SLACTIONS}.sql
-			    echo "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', clock_timestamp(), 'slonik', 'DDL script', '${sqlscript}', '${md5sum}');" > $SLEXECPREFIX
-			    echo "execute script (filename='${SLEXECPREFIX}', event node=$ORIGINNODEID);echo 'begin action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
-			    echo "execute script (filename='${sqlscript}', event node=$ORIGINNODEID);echo 'Invoke DDL: ${sqlscript}';" >> $DDLEXECUTESLONIK
-			    SLEXECSUFFIX=$PWD/.mahout-temp/slonik-post-action-log-${propversion}-${SLACTIONS}.sql
-			    echo "update \"${MAHOUTSCHEMA}\".action_log set result='completed', success='true', action_end=clock_timestamp() where version='${propversion}' and action='slonik' and action_type='DDL script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_end is null;" > $SLEXECSUFFIX
-			    echo "execute script (filename='${SLEXECSUFFIX}', event node=$ORIGINNODEID); echo 'complete action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
-			fi
+			    fi
+			done
+			echo "echo 'Merge temporary set ${SLONYTEMPSET} into main set ${SLONYMAINSET}'; merge set (id=${SLONYMAINSET}, add id=${SLONYTEMPSET}, origin=$ORIGINNODEID); echo '${SLONYTEMPSET} merged';" >> $SUBSCRIBESETS
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^ddl ") -eq 1 ]]; then
+			local sqlscript=`echo ${line} | cut -d " " -f 2`
+			glog user.notice "add DDL Script ${sqlscript}"
+			md5sum=`md5sum < ${sqlscript}`
+			SLACTIONS=$(( $SLACTIONS+1 ))
+			SLEXECPREFIX=$PWD/.mahout-temp/slonik-pre-action-log-${propversion}-${SLACTIONS}.sql
+			echo "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', clock_timestamp(), 'slonik', 'DDL script', '${sqlscript}', '${md5sum}');" > $SLEXECPREFIX
+			echo "execute script (filename='${SLEXECPREFIX}', event node=$ORIGINNODEID);echo 'begin action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
+			echo "execute script (filename='${sqlscript}', event node=$ORIGINNODEID);echo 'Invoke DDL: ${sqlscript}';" >> $DDLEXECUTESLONIK
+			SLEXECSUFFIX=$PWD/.mahout-temp/slonik-post-action-log-${propversion}-${SLACTIONS}.sql
+			echo "update \"${MAHOUTSCHEMA}\".action_log set result='completed', success='true', action_end=clock_timestamp() where version='${propversion}' and action='slonik' and action_type='DDL script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_end is null;" > $SLEXECSUFFIX
+			echo "execute script (filename='${SLEXECSUFFIX}', event node=$ORIGINNODEID); echo 'complete action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
+		    fi
 
-			if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
-			    local unixcommand=`echo ${line} | cut -d " " -f 2`
-			    local unixarg=`echo ${line} | cut -d " " -f 3`
-			    cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
-			    
-			    action_start ${propversion} "slonik" "unix script" "${unixcommand}" "${md5sum}"			
-			    MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ${unixcommand}.${propversion}.log 2>&1
-			    action_end ${propversion} "slonik" "unix script" "${unixcommand}" "${md5sum}" t
-			    ## And indicate application on other nodes
-			    QNONREPLICAS="select distinct sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
-			    SUBNODES=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QREPLICAS}"`
-			    for node in `echo $SUBNODES`; do
-				glog user.notice "Indicate application of UNIX script to non-origin nodes"
-				QSUBCONN="select pa_conninfo from \"_${SLONYCLUSTER}\".sl_path where pa_server=$node limit 1;"
-				subconninfo=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QSUBCONN}"`
-				$PGBINDIR/psql -d "${subconninfo}" -c "insert into action_log(action_start, action_end, action, version, action_type, action_source, result, action_md5, success) values (now(), now(), 'slonik', '${propversion}', 'unix script - replica', '${unixcommand}', '${md5sum}','t');"
-			    done
-			fi
+		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
+			local unixcommand=`echo ${line} | cut -d " " -f 2`
+			local unixarg=`echo ${line} | cut -d " " -f 3`
+			cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
 			
-			if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
-			    local dmlscript=`echo ${line} | cut -d " " -f 2`
-			    local dmlarg=`echo ${line} | cut -d " " -f 3`
-			    cat ${dmlscript} | md5sum > ${dmlscript}.md5sum
-			    
-			    action_start ${propversion} "slonik" "dml script" "${dmlscript}" "${md5sum}"
-			    $PGBINDIR/psql -d $MAINDATABASE -f ${dmlscript} > ${dmlscript}.${propversion}.log 2>&1
-			    rc=$?
-			    # check return code, various possible actions...
-
-			    action_end ${propversion} "slonik" "dml script" "${dmlscript}" "${md5sum}" t
-			    ## And indicate application on other nodes
-			    QNONREPLICAS="select distinct sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
-			    SUBNODES=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QREPLICAS}"`
-			    for node in `echo $SUBNODES`; do
-				glog user.notice "Indicate application of DML script to non-origin nodes"
-				QSUBCONN="select pa_conninfo from \"_${SLONYCLUSTER}\".sl_path where pa_server=$node limit 1;"
-				subconninfo=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QSUBCONN}"`
-				$PGBINDIR/psql -d "${subconninfo}" -c "insert into action_log(action_start, action_end, action, version, action_type, action_source, result, action_md5, success) values (now(), now(), 'slonik', '${propversion}', 'dml script - replica', '${dmlscript}', '${md5sum}','t');"
-			    done
-			fi
+			action_start ${propversion} "slonik" "unix script" "${unixcommand}" "${md5sum}"			
+			MAINDATABASE=${MAINDATABASE} ./${unixcommand} ${!unixarg} > ${unixcommand}.${propversion}.log 2>&1
+			action_end ${propversion} "slonik" "unix script" "${unixcommand}" "${md5sum}" t
+			## And indicate application on other nodes
+			QNONREPLICAS="select distinct sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
+			SUBNODES=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QREPLICAS}"`
+			for node in `echo $SUBNODES`; do
+			    glog user.notice "Indicate application of UNIX script to non-origin nodes"
+			    QSUBCONN="select pa_conninfo from \"_${SLONYCLUSTER}\".sl_path where pa_server=$node limit 1;"
+			    subconninfo=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QSUBCONN}"`
+			    $PGBINDIR/psql -d "${subconninfo}" -c "insert into action_log(action_start, action_end, action, version, action_type, action_source, result, action_md5, success) values (now(), now(), 'slonik', '${propversion}', 'unix script - replica', '${unixcommand}', '${md5sum}','t');"
+			done
+		    fi
+		    
+		    if [[ $(echo ${line} | egrep -c "^dml ") -eq 1 ]]; then
+			local dmlscript=`echo ${line} | cut -d " " -f 2`
+			local dmlarg=`echo ${line} | cut -d " " -f 3`
+			cat ${dmlscript} | md5sum > ${dmlscript}.md5sum
 			
-			if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
-			    glog user.debug "no action apropos for psqltest on slonik"
-			fi
-			if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
-			    glog user.debug "no action apropos for common tests on slonik"
-			fi
-			glog user.debug "line of ${propversion}: ${line}"
-		    done < ${versioncontent}/${propversion}
+			action_start ${propversion} "slonik" "dml script" "${dmlscript}" "${md5sum}"
+			$PGBINDIR/psql -d $MAINDATABASE -f ${dmlscript} > ${dmlscript}.${propversion}.log 2>&1
+			rc=$?
+			# check return code, various possible actions...
 
-		    # Apply new version to it...
-		    SLVERSIONSUFFIX=$PWD/.mahout-temp/slonik-log-version-${propversion}.sql
-		    echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = clock_timestamp(), status = 'completed' where version = '${propversion}';" > $SLVERSIONSUFFIX
-		    echo "execute script (filename='${SLVERSIONSUFFIX}', event node=$ORIGINNODEID); echo 'complete mahout logs for version ${propversion}';" >> $DDLEXECUTESLONIK
+			action_end ${propversion} "slonik" "dml script" "${dmlscript}" "${md5sum}" t
+			## And indicate application on other nodes
+			QNONREPLICAS="select distinct sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
+			SUBNODES=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QREPLICAS}"`
+			for node in `echo $SUBNODES`; do
+			    glog user.notice "Indicate application of DML script to non-origin nodes"
+			    QSUBCONN="select pa_conninfo from \"_${SLONYCLUSTER}\".sl_path where pa_server=$node limit 1;"
+			    subconninfo=`$PGBINDIR/psql -d "${MAINDATABASE}" -qAt -c "${QSUBCONN}"`
+			    $PGBINDIR/psql -d "${subconninfo}" -c "insert into action_log(action_start, action_end, action, version, action_type, action_source, result, action_md5, success) values (now(), now(), 'slonik', '${propversion}', 'dml script - replica', '${dmlscript}', '${md5sum}','t');"
+			done
+		    fi
+		    
+		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
+			glog user.debug "no action apropos for psqltest on slonik"
+		    fi
+		    if [[ $(echo ${line} | egrep -c "^common tests ") -eq 1 ]]; then
+			glog user.debug "no action apropos for common tests on slonik"
+		    fi
+		    glog user.debug "line of ${propversion}: ${line}"
+		done < ${versioncontent}/${propversion}
 
-		    # After end of loop, assemble the slonik script and run it, then...
-		    DDLACTIONSTART=$PWD/.mahout-temp/mahout-ddl-start-execute-script.sql
-		    echo "include <${PWD}/.mahout-temp/mahout-preamble.slonik>;" > $DDLSLONIK
-		    echo "" > $DDLSLONIK
-		    for addition in $PWD/.mahout-temp/mahout-preamble.slonik $DROPTABLESSLONIK $DROPSEQUENCESSLONIK $DDLEXECUTESLONIK $DDLADDSET $NEWTABLESSLONIK $NEWSEQUENCESSLONIK $SUBSCRIBESETS; do
-			if [ -s $addition ]; then
-			    echo "# from ${addition}" >> $DDLSLONIK
-			    cat $addition >> $DDLSLONIK
-			else
-			    echo "# ${addition} was empty" >> $DDLSLONIK
-			fi
-		    done
-		    glog user.notice "Slonik DDL ready to apply: $DDLSLONIK"
-   		else
-		    glog user.debug "Slonik not applying earlier version ${propversion}"
-		fi
+		# Apply new version to it...
+		SLVERSIONSUFFIX=$PWD/.mahout-temp/slonik-log-version-${propversion}.sql
+		echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = clock_timestamp(), status = 'completed' where version = '${propversion}';" > $SLVERSIONSUFFIX
+		echo "execute script (filename='${SLVERSIONSUFFIX}', event node=$ORIGINNODEID); echo 'complete mahout logs for version ${propversion}';" >> $DDLEXECUTESLONIK
+
+		# After end of loop, assemble the slonik script and run it, then...
+		DDLACTIONSTART=$PWD/.mahout-temp/mahout-ddl-start-execute-script.sql
+		echo "include <${PWD}/.mahout-temp/mahout-preamble.slonik>;" > $DDLSLONIK
+		echo "" > $DDLSLONIK
+		for addition in $PWD/.mahout-temp/mahout-preamble.slonik $DROPTABLESSLONIK $DROPSEQUENCESSLONIK $DDLEXECUTESLONIK $DDLADDSET $NEWTABLESSLONIK $NEWSEQUENCESSLONIK $SUBSCRIBESETS; do
+		    if [ -s $addition ]; then
+			echo "# from ${addition}" >> $DDLSLONIK
+			cat $addition >> $DDLSLONIK
+		    else
+			echo "# ${addition} was empty" >> $DDLSLONIK
+		    fi
+		done
+		glog user.notice "Slonik DDL ready to apply: $DDLSLONIK"
+   	    else
+		glog user.debug "Slonik not applying earlier version ${propversion}"
 	    fi
-	done		
-	rm -f ${depfodder} ${dependencies} ${versionorder}
-	rm -rf ${versioncontent} ${PGCMPWORK}
-	summary slonik
+	fi
+    done		
+    rm -f ${depfodder} ${dependencies} ${versionorder}
+    rm -rf ${versioncontent} ${PGCMPWORK}
+    summary slonik
 }
 
 case $SUBCOMMAND in
