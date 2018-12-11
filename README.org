@@ -209,8 +209,7 @@ expect the tool to be used:
    - It is essentially a way of avoiding the need to run ~tar cfvz
      schema-version.tar.gz~
  - ~mahout slonik~ :: This generates ~slonik~ scripts for use
-      with Slony to perform the specified upgrade, stopping at the
-      specified version, if requested.
+      with Slony to perform the specified upgrade.
    - It only works if the version upgrade(s) are either /only/ consist
      of ~ddl~, ~ddl-autocommit~, and ~psqltest~ requests, or /only/ of
      ~dml~ and ~unix~ requests; it will /fail/ if there are
@@ -218,7 +217,20 @@ expect the tool to be used:
    - It generates a slonik script with the following:
      - a pre-amble reference to allow set IDs and connection paths to be customized by an administrator
      - a ~SET DROP TABLE~ for each table removed
+       - The slonik commands are only "full formed" if table IDs are
+         available, hence, if a table is added in one version, say V1,
+         and removed in a later version, say V2, the slonik file
+         generated will be unaware of the table ID, and thus will
+         instead indicate that the ID is unknown.  This may be
+         resolved by running ~mahout slonik~ again after applying
+         version V1, at which point the slonik for version V2 will be
+         regenerated with valid table IDs.
      - a ~SET DROP SEQUENCE~ for each sequence removed
+       - As above with ~SET DROP TABLE~, the sequence IDs of sequences
+         that are to be dropped are unknown before the sequence has
+         been added, so if several versions are to be applied, it may
+         be necessary to re-run ~mahout slonik~ in order to fill in
+         the sequence IDs for sequences being dropped.
      - an ~EXECUTE SCRIPT~ request for each ~psql~ script, to apply DDL to the cluster
      - a ~CREATE SET~ request, for the new tables and sequences that are added
      - a ~SET ADD TABLE~ for each added table
@@ -233,15 +245,15 @@ expect the tool to be used:
      the whole set of tables.  But that requires little input, so
      seems sensible to leave to the user...
    - The ~slonik~ script is /not invoked/; it may be readily invoked
-     by the command:
+     after running ~mahout slonik~ by the command:
 #+BEGIN_EXAMPLE
 $ slonik .mahout-temp/mahout-ddl-script-1.1.slonik
 #+END_EXAMPLE
-     (where "1.1" is replaced with the apropos version label).  The
-     slonik script references files in ~.mahout-temp~, as well as the
-     DDL scripts in the Mahout installation so should be run $PWD
-     being set to the ~mahout~ directory containing ~mahout.conf~ and
-     ~mahout.control~.
+     (where "1.1" might be replaced with a more apropos version
+     label).  The slonik script contains relative references to files
+     in ~.mahout-temp~, as well as the DDL scripts in the Mahout
+     installation so should be run with $PWD being set to the ~mahout~
+     directory containing ~mahout.conf~ and ~mahout.control~.
 ** Mahout Directory Structure
 
   A schema repository will consist of a directory structure where the
