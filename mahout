@@ -1966,10 +1966,17 @@ from t_dropped_sequences;
 			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
 			NEWTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.slonik
 			NEWTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.sql
+			if [ "x$SLONYOMITTABLES" = "x" ]; then
+			    DROPOMITTABLES="delete from t_added_tables where table_name in ${SLONYOMITTABLES};"
+			else
+			    DROPOMITTABLES=""
+			fi
+
 			echo "
 create temp table t_added_tables (table_name text primary key);
 \copy t_added_tables (table_name) from '${NEWTABLESFILE}';
-analyze t_added_tables;		 
+analyze t_added_tables;
+${DROPOMITTABLES}
 create temp table t_slonik_code as 
 select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|| quote_literal('^'||table_name||'\$') || '); echo '|| quote_literal(table_name) ||  ';' as slonik from t_added_tables;
 \copy (select slonik from t_slonik_code) to '${NEWTABLESSLONIK}';
@@ -1986,10 +1993,16 @@ select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|
 
 			NEWSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.slonik
 			NEWSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.sql
+			if [ "x$SLONYOMITSEQUENCES" = "x" ]; then
+			    DROPOMITSEQUENCES="delete from t_added_sequences where sequence_name in ${SLONYOMITSEQUENCES};"
+			else
+			    DROPOMITSEQUENCES=""
+			fi
 			echo "
 create temp table t_added_sequences (sequence_name text primary key);
 \copy t_added_sequences (sequence_name) from '${NEWSEQUENCESFILE}';
  analyze t_added_sequences;
+${DROPOMITSEQUENCES}
 create temp table t_slonik_code as 
 select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequences='|| quote_literal(sequence_name) || ');echo '|| quote_literal(sequence_name) ||  ';' as slonik from t_added_sequences;
 \copy (select slonik from t_slonik_code) to '${NEWSEQUENCESSLONIK}';
