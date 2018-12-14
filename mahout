@@ -1967,9 +1967,11 @@ from t_dropped_sequences;
 			NEWTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.slonik
 			NEWTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.sql
 			if [ "x$SLONYOMITTABLES" = "x" ]; then
-			    DROPOMITTABLES="delete from t_added_tables where table_name in ${SLONYOMITTABLES};"
-			else
+			    glog user.notice "No omittable tables - [$SLONYOMITTABLES]"
 			    DROPOMITTABLES=""
+			else
+			    glog user.notice "Omitting tables: ${SLONYOMITTABLES}"
+			    DROPOMITTABLES="delete from t_added_tables where table_name in ${SLONYOMITTABLES};"
 			fi
 
 			echo "
@@ -1986,7 +1988,6 @@ select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|
 			glog user.notice "Found [${NTCOUNT}] new tables to be added to replication"
 			$PGBINDIR/psql -d ${MAINDATABASE} -f "${NEWTABLESSQL}"
 			glog user.notice "Generated Slonik for new tables"
-
 			NEWSEQUENCESFILE=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.txt
 			SEQUENCESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'sequence' and difference_type='missing in 1st DB') to '${NEWSEQUENCESFILE}';"
 			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${SEQUENCESADDEDSQL}"
@@ -1994,9 +1995,9 @@ select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|
 			NEWSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.slonik
 			NEWSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.sql
 			if [ "x$SLONYOMITSEQUENCES" = "x" ]; then
-			    DROPOMITSEQUENCES="delete from t_added_sequences where sequence_name in ${SLONYOMITSEQUENCES};"
-			else
 			    DROPOMITSEQUENCES=""
+			else
+			    DROPOMITSEQUENCES="delete from t_added_sequences where sequence_name in ${SLONYOMITSEQUENCES};"
 			fi
 			echo "
 create temp table t_added_sequences (sequence_name text primary key);
