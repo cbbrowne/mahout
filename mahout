@@ -479,6 +479,7 @@ function validate_control () {
 		    gottotal=$(( $gotddl + $gotdml + $gotddlp + $gotunix ))
 		    if [ $gottotal -gt 1 ]; then
 			glog user.error "version $cversion has multiple processing types"
+			glog user.error "ddl: ${gotddl} dml: ${gotddl} ddlp: ${gotddlp} unix: ${gotunix}"
 		    fi
 		    gotddl=0
 		    gotdml=0
@@ -1810,7 +1811,7 @@ function mahout_slonik () {
     local dependencies=$PWD/.mahout-temp/mahout-slonik-dependencies
     local versionorder=$PWD/.mahout-temp/mahout-slonik-version-order
     local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-slonik-version-content.XXXXXXXXXXXX`
-    local slonikscript=${PWD}/.mahout-temp/slonik-from-${DBVERSION}.slonik
+    local slonikscript=${PWD}/.slony/slonik-from-${DBVERSION}.slonik
 
     # Find the shape of the cluster, because we need to SUBSCRIBE SET for each relevant node
     # SLONYCLUSTER
@@ -1849,7 +1850,7 @@ function mahout_slonik () {
     #      cluster name=$SLONYCLUSTER;
     #        plus per-node
     #      node $nodenum admin conninfo='something'
-    SLONIKPREAMBLE=${PWD}/.mahout-temp/mahout-preamble.slonik
+    SLONIKPREAMBLE=${PWD}/.slony/mahout-preamble.slonik
     echo "
 cluster name=${SLONYCLUSTER};
 " > $SLONIKPREAMBLE
@@ -1911,7 +1912,7 @@ cluster name=${SLONYCLUSTER};
 			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADTABLESQUERY}"
 			DTCOUNT=`wc -l < $DEADTABLESFILE`
 			glog user.notice "Found [${DTCOUNT}] dead tables"
-			DROPTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.slonik
+			DROPTABLESSLONIK=$PWD/.slony/mahout-slony-tables-dropped-${propversion}.slonik
 			DROPTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-dropped-${propversion}.sql
 			echo "
 drop table if exists t_dropped_tables, t_droptab_slonik;
@@ -1939,7 +1940,7 @@ from t_dropped_tables;
 			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${DEADSEQUENCEQUERY}"
 			DSCOUNT=`wc -l < $DEADSEQUENCESFILE`
 			glog user.notice "Found [${DSCOUNT}] dead sequences"
-			DROPSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.slonik
+			DROPSEQUENCESSLONIK=$PWD/.slony/mahout-slony-sequences-dropped-${propversion}.slonik
 			DROPSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-dropped-${propversion}.sql
 			echo "
 drop table if exists t_dropped_sequences, t_dropseq_slonik;
@@ -1964,7 +1965,7 @@ from t_dropped_sequences;
 			NEWTABLESFILE=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.txt
 			TABLESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'table' and difference_type='missing in 1st DB') to '${NEWTABLESFILE}';"
 			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${TABLESADDEDSQL}"
-			NEWTABLESSLONIK=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.slonik
+			NEWTABLESSLONIK=$PWD/.slony/mahout-slony-tables-added-${propversion}.slonik
 			NEWTABLESSQL=$PWD/.mahout-temp/mahout-slony-tables-added-${propversion}.sql
 			if [ "x$SLONYOMITTABLES" = "x" ]; then
 			    glog user.notice "No omittable tables - [$SLONYOMITTABLES]"
@@ -1992,7 +1993,7 @@ select 'set add table (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, tables='|
 			SEQUENCESADDEDSQL="\copy (select object_name from unexplained_items where object_type = 'sequence' and difference_type='missing in 1st DB') to '${NEWSEQUENCESFILE}';"
 			$PGBINDIR/psql -d ${COMPARISONDATABASE} -c "${SEQUENCESADDEDSQL}"
 
-			NEWSEQUENCESSLONIK=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.slonik
+			NEWSEQUENCESSLONIK=$PWD/.slony/mahout-slony-sequences-added-${propversion}.slonik
 			NEWSEQUENCESSQL=$PWD/.mahout-temp/mahout-slony-sequences-added-${propversion}.sql
 			if [ "x$SLONYOMITSEQUENCES" = "x" ]; then
 			    DROPOMITSEQUENCES=""
@@ -2014,18 +2015,18 @@ select 'set add sequence (origin=${ORIGINNODEID}, set id=${SLONYTEMPSET}, sequen
 			$PGBINDIR/psql -d ${MAINDATABASE} -f "${NEWSEQUENCESSQL}"
 			glog user.notice "Generated Slonik for new sequences"
 			
-			DDLADDSET=$PWD/.mahout-temp/mahout-ddl-add-set-${propversion}.slonik
+			DDLADDSET=$PWD/.slony/mahout-ddl-add-set-${propversion}.slonik
 			echo "create set (id=${SLONYTEMPSET}, origin=${ORIGINNODEID}, comment='Temporary set for Mahout to add data for version ${propversion}');" > $DDLADDSET
 
-			DDLSLONIK=$PWD/.mahout-temp/mahout-ddl-script-${propversion}.slonik
+			DDLSLONIK=$PWD/.slony/mahout-ddl-script-${propversion}.slonik
 			
-			DDLEXECUTESLONIK=$PWD/.mahout-temp/mahout-ddl-execute-script-${propversion}.slonik
+			DDLEXECUTESLONIK=$PWD/.slony/mahout-ddl-execute-script-${propversion}.slonik
 
 			SLVERSIONPREFIX=$PWD/.mahout-temp/slonik-log-version-prefix-${propversion}.sql
 			echo "insert into \"${MAHOUTSCHEMA}\".version_log (version, install_start) values ('${propversion}', clock_timestamp());" > $SLVERSIONPREFIX
 			echo "execute script (event node=${ORIGINNODEID}, filename='${SLVERSIONPREFIX}');echo 'Distribute version_log insert via EXECUTE SCRIPT';" > $DDLEXECUTESLONIK
 			
-			SUBSCRIBESETS=$PWD/.mahout-temp/slonik-subscribe-sets-${propversion}.slonik
+			SUBSCRIBESETS=$PWD/.slony/slonik-subscribe-sets-${propversion}.slonik
 			echo "echo 'Subscribe nodes to temporary replication set ${SLONYTEMPSET}';" > $SUBSCRIBESETS
 			for node in `cat $NODEORDERFILE`; do
 			    if [[ $node -ne $ORIGINNODEID ]]; then
@@ -2110,9 +2111,9 @@ wait for event (origin=${ORIGINNODEID}, confirmed=$node, wait on=$node);echo 'wa
 
 		# After end of loop, assemble the slonik script and run it, then...
 		DDLACTIONSTART=$PWD/.mahout-temp/mahout-ddl-start-execute-script.sql
-		echo "include <${PWD}/.mahout-temp/mahout-preamble.slonik>;" > $DDLSLONIK
+		echo "include <${PWD}/.slony/mahout-preamble.slonik>;" > $DDLSLONIK
 		echo "" > $DDLSLONIK
-		for addition in $PWD/.mahout-temp/mahout-preamble.slonik $DROPTABLESSLONIK $DROPSEQUENCESSLONIK $DDLEXECUTESLONIK $DDLADDSET $NEWTABLESSLONIK $NEWSEQUENCESSLONIK $SUBSCRIBESETS; do
+		for addition in $PWD/.slony/mahout-preamble.slonik $DROPTABLESSLONIK $DROPSEQUENCESSLONIK $DDLEXECUTESLONIK $DDLADDSET $NEWTABLESSLONIK $NEWSEQUENCESSLONIK $SUBSCRIBESETS; do
 		    if [ -s $addition ]; then
 			echo "# from ${addition}" >> $DDLSLONIK
 			cat $addition >> $DDLSLONIK
