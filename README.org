@@ -584,58 +584,65 @@ There are a couple of ideas to be had here:
       a convention for collecting and generating per-version release
       notes would be a neat idea.
 
-** Unorganized Requirement Ideas
+** Under-Organized Requirement Ideas
 The upgrade system needs to identify and control all schema changes to
 be made.
 
-- User that runs updates
-  - Usually should be schema owner
-  - Some changes must be handled via superuser
-- Multiple SQL scripts
-  - Need a mechanism to order them
-- Nice to have: ensure DDL and DML do not get done in the same script
-  - Can this be verified automatically?
-- Configuration file that indicates
-  - Place to log things
-  - Postgres binaries
-  - PostgreSQL URI
-- Version number capture
-  - We use stuff in ~upgrade_version_to_latest.sh~ to indicate
+- [ ] User that runs updates
+  - [ ] Usually should be schema owner
+  - [ ] Some changes must be handled via superuser
+    - Actually, heading to prefer /superuser/, and have ownership
+      validation rules to ensure everything does not belong to the
+      superuser.
+    - Having a special non-superuser for this looks nice in simple
+      environments; with Slony, where changes are generally applied by
+      a superuser, all that goes pretty forcibly out the window.
+- [X] Multiple SQL scripts
+  - [X] Need a mechanism to order them
+- [X] Nice to have: ensure DDL and DML do not get done in the same script
+  - [X] Can this be verified automatically?
+- [X] Configuration file that indicates
+  - [X] Place to log things
+  - [X] Postgres binaries
+  - [X] PostgreSQL URI
+- [ ] Version number capture
+  - [ ] We use stuff in ~upgrade_version_to_latest.sh~ to indicate
     the version in the ~_oxrsversion~ schema
-  - Current stuff is:
-    - Branch :: which may become the version label
-    - Generated on host :: Reasonable for Mahout to do differently
-    - Generated at time :: Reasonable for Mahout to do differently
-    - SCM checkout information :: Reasonable for Mahout to do differently
-- Log activity
-  - For each sub-component, identify what was run, when it ran, how long it took
-  - Some may go into database
-  - Successes are no problem; failed schema would be troublesome to get into DB as requests would fail
-  - Probably need to determine how to serialize some logs into filesystem
-- Supplemental configuration
-- Standard tests
-  - Check that functions all have comments
-  - Check that tables and views all have role-based permissions attached to them
-  - Check that tables all have primary keys-
-  - Check that tables have unique names
-  - Check that tables and their columns have comments
-  - Hooks to allow running custom tests
-  - Which tests to run against which versions?
-- We'll have several kinds of things to execute...
-  - SQL scripts that need to be run
-  - Shell scripts that need to be run
-  - Might there be some Python?
-- Various pre- and post-conditions
-  - Run ~pgcmp~ to check that schema matches expectations, e.g. - captured ~pgcmp-dump~ matches the schema
-  - Need a mechanism that runs ~pgcmp-dump~ to capture schema at various points
-  - Run tests, and capture either perfect conformance or counts/details of non-conformance?
-- Seeding
-  - Security needs
-    - Roles
-      - What to do about the possibility of needful roles evolving over time?
-    - Basic users
-      - Basic information needed will be
-        - Owner
-        - Superuser (hopefully little needed)
-- Version and tagging model
-
+  - [ ] Current stuff is:
+    - [ ] Branch :: which may become the version label
+    - [ ] Generated on host :: Reasonable for Mahout to do differently
+    - [ ] Generated at time :: Reasonable for Mahout to do differently
+    - [ ] SCM checkout information :: Reasonable for Mahout to do differently
+- [-] Log activity
+  - [X] For each sub-component, identify what was run, when it ran, how long it took
+  - [X] Some may go into database
+  - [X] Successes are no problem; failed schema would be troublesome to get into DB as requests would fail
+  - [ ] Probably need to determine how to serialize some logs into filesystem
+- [ ] Supplemental configuration
+- [-] Standard tests
+  - [ ] Check that functions all have comments
+  - [ ] Check that tables and views all have role-based permissions attached to them
+  - [ ] Check that tables all have primary keys-
+  - [ ] Check that tables have unique names
+  - [ ] Check that tables and their columns have comments
+  - [X] Hooks to allow running custom tests
+  - [X] Which tests to run against which versions?
+- [-] We'll have several kinds of things to execute...
+  - [X] SQL scripts that need to be run
+  - [X] Shell scripts that need to be run
+  - [ ] Might there be some Python?  Unnecessary
+- [X] Various pre- and post-conditions
+  - [X] Run ~pgcmp~ to check that schema matches expectations, e.g. - captured ~pgcmp-dump~ matches the schema
+  - [X] Need a mechanism that runs ~pgcmp-dump~ to capture schema at various points
+  - [X] Run tests, and capture either perfect conformance or counts/details of non-conformance?
+- [ ] Seeding
+  - [ ] Security needs
+    - [ ] Roles
+      - [ ] What to do about the possibility of needful roles evolving over time?
+    - [ ] Basic users
+      - [ ] Basic information needed will be
+        - [ ] Owner
+        - [ ] Superuser (hopefully little needed)
+- [ ] Version and tagging model
+- [ ]  ~mahout versions~ 
+- [ ]  ~mahout changes~ 
