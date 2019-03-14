@@ -281,8 +281,8 @@ function mahout_init () {
     glog user.info "mahout: please edit ${MO} to validate configuration parameters"
 
     echo "begin;  create schema if not exists \"${MHSCH}\";  set search_path to \"${MHSCH}\";
-    create table if not exists version_log (version text primary key, install_start timestamptz default clock_timestamp(), install_end timestamptz, status text);
-    create table if not exists action_log (id serial primary key, action_start timestamptz default clock_timestamp(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean);
+    create table if not exists version_log (version text primary key, install_start timestamptz default clock_timestamp(), install_end timestamptz, status text, version_seq serial);
+    create table if not exists action_log (action_start timestamptz default clock_timestamp(), action_end timestamptz, action text, version text, action_type text, action_source text, action_md5 text, result text, success boolean, action_seq serial primary key);
   delete from version_log;
   delete from action_log;
   insert into version_log (version, install_start, install_end, status)
