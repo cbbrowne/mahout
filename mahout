@@ -159,7 +159,6 @@ function mahout_pgcmp_nodeprobs () {
 	    glog user.notice "pgcmp completed, all matched - rc=${rc}"
 	    ;;
     esac
-    
 }
 
 function mahout_init () {
@@ -1054,8 +1053,14 @@ function mahout_upgrade () {
 			md5sum=`md5sum < ${sqlscript}`
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 			action_start $propversion upgrade "DDL script" ${sqlscript} "${md5sum}"
-			$PGBINDIR/psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-			retcode=$?
+
+			if [[ $MAHOUTSEARCHPATH == '' ]]; then
+			    $PGBINDIR/psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			    retcode=$?
+			else
+			    PGOPTIONS="--search_path=${MAHOUTSEARCHPATH}" $PGBINDIR/psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			    retcode=$?
+			fi
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
 			    action_end ${propversion} "upgrade" "DDL script" "${sqlscript}" "${md5sum}" f
@@ -1070,8 +1075,13 @@ function mahout_upgrade () {
 			md5sum=`md5sum < ${sqlscript}`
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 			action_start $propversion upgrade "DML script" ${sqlscript} "${md5sum}"
-			$PGBINDIR/psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-			retcode=$?
+			if [[ $MAHOUTSEARCHPATH == '' ]]; then
+			    $PGBINDIR/psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			    retcode=$?
+			else
+			    PGOPTIONS="--search_path=${MAHOUTSEARCHPATH}" $PGBINDIR/psql -d ${MAINDATABASE} -f ${sqlscript} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			    retcode=$?
+			fi
 
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "DML script ${sqlscript} failed against database [${MDB}]"
@@ -1698,7 +1708,7 @@ function mahout_slonik () {
     # check the version in the database
     PRODVERSION=`get_mahout_version ${MAINDATABASE}`
     glog user.info "slonik: found version: ${PRODVERSION} on node [${MAINDATABASE}]"
-
+    
     CMPDATA=${PWD}/.mahout-data/${PRODVERSION}.pgcmp
     if [[ -e ${CMPDATA} ]]; then
 	glog user.info "Found comparison data for version - [${CMPDATA}]"
@@ -1791,6 +1801,8 @@ function mahout_slonik () {
 	# And run pgcmp against the two schemas
 	PGCMPWORK=$PWD/.mahout-temp/mahout-attach-pgcmp-work
 	mkdir -p $PGCMPWORK
+	mkdir -p $PWD/.slony
+	
 	PGCWORKDIR=$PGCMPWORK mahout_pgcmp_nodeprobs  $CAPTUREFILE .mahout-data/${PRODVERSION}.pgcmp $LABEL $PRODVERSION true
     done
     case $nodeprobs in
@@ -1957,8 +1969,8 @@ select sequence_name, 'set drop sequence (origin=${ORIGINNODEID}, id='||
 from t_dropped_sequences;
 
 \COPY (select slonik || echo_text from t_dropseq_slonik) to '${DROPSEQUENCESSLONIK}';
-" > $DROPSEQUENCESSQL
-
+      " > $DROPSEQUENCESSQL
+			
 			$PGBINDIR/psql -d ${MAINDATABASE} -f "${DROPSEQUENCESSQL}"
 			glog user.notice "Generated slonik to dead sequences"
 			
@@ -1974,7 +1986,7 @@ from t_dropped_sequences;
 			    glog user.notice "Omitting tables: ${SLONYOMITTABLES}"
 			    DROPOMITTABLES="delete from t_added_tables where table_name in ${SLONYOMITTABLES};"
 			fi
-
+			
 			echo "
 create temp table t_added_tables (table_name text primary key);
 \copy t_added_tables (table_name) from '${NEWTABLESFILE}';
@@ -2048,6 +2060,11 @@ wait for event (origin=${ORIGINNODEID}, confirmed=$node, wait on=$node);echo 'wa
 			SLEXECPREFIX=$PWD/.mahout-temp/slonik-pre-action-log-${propversion}-${SLACTIONS}.sql
 			echo "insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${propversion}', clock_timestamp(), 'slonik', 'DDL script', '${sqlscript}', '${md5sum}');" > $SLEXECPREFIX
 			echo "execute script (filename='${SLEXECPREFIX}', event node=$ORIGINNODEID);echo 'begin action_log for ${sqlscript}';" >> $DDLEXECUTESLONIK
+			if [[ $MAHOUTSEARCHPATH == '' ]]; then
+			    glog user.notice "No MAHOUTSEARCHPATH set"
+			else
+			    echo "execute script (sql='set search_path to ${MAHOUTSEARCHPATH};', event node=$ORIGINNODEID);echo 'reset search_path to ${MAHOUTSEARCHPATH}';" >> $DDLEXECUTESLONIK
+			fi
 			echo "execute script (filename='${sqlscript}', event node=$ORIGINNODEID);echo 'Invoke DDL: ${sqlscript}';" >> $DDLEXECUTESLONIK
 			SLEXECSUFFIX=$PWD/.mahout-temp/slonik-post-action-log-${propversion}-${SLACTIONS}.sql
 			echo "update \"${MAHOUTSCHEMA}\".action_log set result='completed', success='true', action_end=clock_timestamp() where version='${propversion}' and action='slonik' and action_type='DDL script' and action_source='${sqlscript}' and action_md5 = '${md5sum}' and action_end is null;" > $SLEXECSUFFIX
@@ -2079,10 +2096,17 @@ wait for event (origin=${ORIGINNODEID}, confirmed=$node, wait on=$node);echo 'wa
 			cat ${dmlscript} | md5sum > ${dmlscript}.md5sum
 			
 			action_start ${propversion} "slonik" "dml script" "${dmlscript}" "${md5sum}"
-			$PGBINDIR/psql -d $MAINDATABASE -f ${dmlscript} > ${dmlscript}.${propversion}.log 2>&1
-			rc=$?
+			if [[ $MAHOUTSEARCHPATH == '' ]]; then
+			    glog user.notice "No MAHOUTSEARCHPATH set"
+			    $PGBINDIR/psql -d $MAINDATABASE -f ${dmlscript} > ${dmlscript}.${propversion}.log 2>&1			    
+			    rc=$?
+			else
+			    PGOPTIONS="--search_path=${MAHOUTSEARCHPATH}" $PGBINDIR/psql -d $MAINDATABASE -f ${dmlscript} > ${dmlscript}.${propversion}.log 2>&1
+			    rc=$?
+			fi
+			
 			# check return code, various possible actions...
-
+			
 			action_end ${propversion} "slonik" "dml script" "${dmlscript}" "${md5sum}" t
 			## And indicate application on other nodes
 			QNONREPLICAS="select distinct sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
@@ -2103,7 +2127,7 @@ wait for event (origin=${ORIGINNODEID}, confirmed=$node, wait on=$node);echo 'wa
 		    fi
 		    glog user.debug "line of ${propversion}: ${line}"
 		done < ${versioncontent}/${propversion}
-
+		
 		# Apply new version to it...
 		SLVERSIONSUFFIX=$PWD/.mahout-temp/slonik-log-version-${propversion}.sql
 		echo "update \"${MAHOUTSCHEMA}\".version_log set install_end = clock_timestamp(), status = 'completed' where version = '${propversion}';" > $SLVERSIONSUFFIX
