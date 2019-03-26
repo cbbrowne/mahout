@@ -753,8 +753,15 @@ function mahout_capture () {
 create temp table t_locks_acquired as select nspname, relname, mode from t_ending_locks e where not exists (select 1 from t_starting_locks s where s.nspname = e.nspname and s.relname = e.relname and s.mode = e.mode);
 " >> ${TEMPSQLFILE}
 			echo "\COPY (select nspname, relname, mode from t_locks_acquired) to '${sqlscript}.${propversion}.locks-acquired';" >> ${TEMPSQLFILE}
-			$PGBINDIR/psql -d ${MAINDATABASE} -f ${TEMPSQLFILE} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-			retcode=$?
+
+
+			if [[ $MAHOUTSEARCHPATH == '' ]]; then
+			    $PGBINDIR/psql -d ${MAINDATABASE} -f ${TEMPSQLFILE} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			    retcode=$?
+			else
+			    PGOPTIONS="--search_path=${MAHOUTSEARCHPATH}" $PGBINDIR/psql -d ${MAINDATABASE} -f ${TEMPSQLFILE} --variable ON_ERROR_STOP=1 --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+			    retcode=$?
+			fi
 			if [ $retcode -ne 0 ]; then
 			    glog user.error "DDL script ${sqlscript} failed against database [${MAINDATABASE}]"
 			    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" f
@@ -775,7 +782,13 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			action_start ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}"
 			pgcmp_dump_current pre-dml $predmlcmp ${MAINDATABASE}
 			
-			$PGBINDIR/psql -d ${MAINDATABASE} -f ${dmlscript} > ./${dmlscript}.${propversion}.log 2>&1
+			if [[ $MAHOUTSEARCHPATH == '' ]]; then
+			    $PGBINDIR/psql -d ${MAINDATABASE} -f ${dmlscript} > ./${dmlscript}.${propversion}.log 2>&1
+			    retcode=$?
+			else
+			    PGOPTIONS="--search_path=${MAHOUTSEARCHPATH}" $PGBINDIR/psql -d ${MAINDATABASE} -f ${dmlscript} > ./${dmlscript}.${propversion}.log 2>&1
+			    retcode=$?
+			fi
 			pgcmp_dump_current post-dml $postdmlcmp ${MAINDATABASE}
 			mahout_pgcmp $predmlcmp $postdmlcmp pre-dml post-dml false
 			# PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${predmlcmp} PGCMPINPUT2=${postdmlcmp} PGCLABEL1=pre-dml PGCLABEL2=post-dml ${PGCMPHOME}/pgcmp > /dev/null 2>&1
@@ -1204,8 +1217,13 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 		action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
-		$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-		retcode=$?
+		if [[ $MAHOUTSEARCHPATH == '' ]]; then
+		    $PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		    retcode=$?
+		else
+		    PGOPTIONS="--search_path=${MAHOUTSEARCHPATH}" $PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		    retcode=$?
+		fi
 		if [ $retcode -ne 0 ]; then
 		    glog user.error "DDL script ${sqlscript} failed against database [${MDB}]"
 		    action_end ${propversion} "capture" "DDL script" "${sqlscript}" "${md5sum}" f
@@ -1220,8 +1238,13 @@ function mahout_install () {
 		md5sum=`md5sum < ${sqlscript}`
 		cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
 		action_start $propversion capture "DML script" ${sqlscript} "${md5sum}"
-		$PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
-		retcode=$?
+		if [[ $MAHOUTSEARCHPATH == '' ]]; then
+		    $PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		    retcode=$?
+		else
+		    PGOPTIONS="--search_path=${MAHOUTSEARCHPATH}" $PGBINDIR/psql -d ${MAINDATABASE} --variable ON_ERROR_STOP=1 -f ${sqlscript} --single-transaction > ${sqlscript}.${propversion}.log 2>&1
+		    retcode=$?
+		fi
 		if [ $retcode -ne 0 ]; then
 		    glog user.error "DML script ${sqlscript} failed against database [${MDB}]"
 		    action_end ${propversion} "capture" "DML script" "${sqlscript}" "${md5sum}" f
@@ -2104,9 +2127,7 @@ wait for event (origin=${ORIGINNODEID}, confirmed=$node, wait on=$node);echo 'wa
 			    PGOPTIONS="--search_path=${MAHOUTSEARCHPATH}" $PGBINDIR/psql -d $MAINDATABASE -f ${dmlscript} > ${dmlscript}.${propversion}.log 2>&1
 			    rc=$?
 			fi
-			
 			# check return code, various possible actions...
-			
 			action_end ${propversion} "slonik" "dml script" "${dmlscript}" "${md5sum}" t
 			## And indicate application on other nodes
 			QNONREPLICAS="select distinct sub_receiver from \"_${SLONYCLUSTER}\".sl_subscribe where sub_set=${SLONYMAINSET};"
