@@ -199,6 +199,8 @@ function mahout_init () {
     echo "SUPERUSERACCESS=${MSU}" >> ${MO}
     echo "# COMPARISONDATABASE: URI for comparison database to be used for comparisons" >> ${MO}
     echo "COMPARISONDATABASE=${MCL}" >> ${MO}
+    echo "# MAHOUTNODETYPE: dev/prod" >> ${MO}
+    echo "MAHOUTNODETYPE=dev" >> ${MO}
 
     GITIGNORE=${MAHOUTHOME}/.gitignore
     echo "# Default git ignores" > ${GITIGNORE}
@@ -681,13 +683,23 @@ function mahout_capture () {
 
     # we should compare against the pgcmp dump
     local VERSIONDUMP=.mahout-data/${DBVERSION}.pgcmp
-    if [ -e ${VERSIONDUMP} ]; then
+    if [ -f ${VERSIONDUMP} ]; then
 	glog user.info "Found pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
 	mahout_pgcmp $CAPTUREFILE $VERSIONDUMP $DBVERSION capturedb false
 	#PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${CAPTUREFILE} PGCMPINPUT2=${VERSIONDUMP} PGCLABEL1=${DBVERSION} PGCLABEL2=capturedb ${PGCMPHOME}/pgcmp > /dev/null 2>&1
     else
-	glog user.error "Failed to find pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
-	exit 1
+	case $MAHOUTNODETYPE in
+	    dev)
+		glog user.notice "pgcmp output for version ${DBVERSION} missing"
+		glog user.notice "generating pgcmp for version ${DBVERSION}"
+		pgcmp_dump_current $DBVERSION ${VERSIONDUMP} ${MAINDATABASE}
+		;;
+	    *)
+		glog user.notice "Environment type [${MAHOUTNODETYPE}] requires pgcmp output"
+		glog user.error "Failed to find pgcmp data for version ${DBVERSION} - [${VERSIONDUMP}]"
+		exit 1
+		;;
+	esac
     fi
     
     local depfodder=$PWD/.mahout-temp/mahout-capture-dependency-fodder

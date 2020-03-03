@@ -203,7 +203,7 @@ expect the tool to be used:
    - This has not yet been implemented; perhaps it is irrelevant in
      that these changes are reflected automatically by the DDL scripts
      referenced by the control script.
- - ~mahout build~ :: This takes the contents of the current Mahout
+ - ~mahout build~ version  :: This takes the contents of the current Mahout
                      directory, and generates an archive containing
                      all of the data.
    - It is essentially a way of avoiding the need to run ~tar cfvz
