@@ -81,6 +81,8 @@ function glog () {
 	    ccode='\e[31m'
 	    PROBLEMS=$((${PROBLEMS} + 1))
 	    ;;
+	user.command)
+	    ccode='\e[35m'
     esac	    
     case ${level} in
 	user.debug)
@@ -502,6 +504,8 @@ function validate_control () {
 	    glog user.error "version $cversion has multiple processing types"
 	    PROBLEMS=$((${PROBLEMS} + 1))
 	    exit 1
+	else
+	    glog user.notice "No mixing of actions within a version OK"
 	fi
 	
 	rm -f ${shortened} ${dropcomments} ${dropwhitespace} ${badlines} ${psqlscripts} ${badlines} ${vfile} ${rfile} ${unixcommands}  ${versionorder} ${depfodder}
@@ -1482,7 +1486,7 @@ function mahout_build () {
 	    (cd ${BHOME}; tar cfj ${BUILDFILE} ${BLABEL})
 	    ;;
 	*)
-	    glog user.error "Invalid build type: [${BTYPE}] - must be one of (tar, tar.gz, tar.bz)"
+	    glog user.error "Invalid build type (BTYPE): [${BTYPE}] - must be one of (tar, tar.gz, tar.bz)"
 	    ;;
     esac
     if [[ -d ${BHOME} ]]; then
@@ -2166,7 +2170,8 @@ wait for event (origin=${ORIGINNODEID}, confirmed=$node, wait on=$node);echo 'wa
 			echo "# ${addition} was empty" >> $DDLSLONIK
 		    fi
 		done
-		glog user.notice "Slonik DDL ready to apply: $DDLSLONIK"
+		glog user.notice "Slonik DDL generated and ready to apply: $DDLSLONIK"
+		glog user.notice "\$> ${PGBINDIR}/slonik ${DDLSLONIK}"
    	    else
 		glog user.debug "Slonik not applying earlier version ${propversion}"
 	    fi
