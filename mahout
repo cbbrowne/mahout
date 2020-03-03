@@ -1292,6 +1292,16 @@ function mahout_install () {
 	    glog user.notice "applying common tests"
 	fi
 
+
+	# if we're in a dev environment, then generate a pgcmp file after loading each version
+	case $MAHOUTNODETYPE in
+	    dev)
+		PGCMPCAPTUREFILE=${PWD}/.mahout-data/${propversion}.pgcmp
+		glog user.notice "Generating pgcmp output for version ${propversion} in ${PGCMPCAPTUREFILE}"
+		pgcmp_dump_current $propversion $PGCMPCAPTUREFILE $MAINDATABASE
+		;;
+	esac
+
 	version_load_end ${propversion} completed
     done
     
