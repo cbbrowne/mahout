@@ -20,8 +20,9 @@ mahout commands:
  mahout attach [VERSION]
     Initializes the present non-mahoutized database schema to the specified
     version.  Fail if the schema does not match that version.
- mahout install
-    Installs a mahout-managed schema in a blank database
+ mahout install [VERSION]
+    Installs a mahout-managed schema in a blank database.
+    With the optional version, it will stop installing at the specified version.
  mahout check
     Checks the version indicated by mahout.conf/MAHOUTCONFIG and checks the 
     schema against that version using pgcmp
@@ -1161,6 +1162,8 @@ function mahout_initialize_schema () {
 }
 
 function mahout_install () {
+    local STOPATVERSION=$1
+    
     # check that we're in a Mahout directory
     local INMAHOUT
     local PGCMPOUTPUT
@@ -1301,8 +1304,11 @@ function mahout_install () {
 		pgcmp_dump_current $propversion $PGCMPCAPTUREFILE $MAINDATABASE
 		;;
 	esac
-
 	version_load_end ${propversion} completed
+	if [[ ${propversion} == ${STOPATVERSION} ]]; then
+	    glog user.notice "Stopping at version ${propversion}"
+	    exit 0
+	fi
     done
     
     rm -f ${SETUPQ} ${depfodder} ${dependencies} ${versionorder}
@@ -2218,7 +2224,7 @@ case $SUBCOMMAND in
 	mahout_check
 	;;
     install)
-	mahout_install
+	mahout_install ${PARM1}
 	;;
     upgrade)
 	mahout_upgrade
