@@ -1486,11 +1486,11 @@ function mahout_changes () {
 
 function mahout_build () {
     local BLABEL=$1
-    local BTYPE=$2
+    local BUILDTYPE=$2
     local BHOME=`mktemp -d $PWD/.mahout-temp/mahout-build-path.XXXXXXXXXXXXXXX`
     mkdir -p ${BHOME}/${BLABEL}
     glog user.info "mahout build generated build directory ${BHOME}/${BLABEL}"
-    tar cf - --exclude=.mahout-temp . | (cd ${BHOME}/${BLABEL}; tar xf -)
+    tar cf - --exclude=.mahout-temp --exclude="*~" . | (cd ${BHOME}/${BLABEL}; tar xf -)
     glog user.notice "mahout build copied build material to ${BHOME}/${BLABEL}"
 
     glog user.notice "mahout build: trimming unneeded material"
@@ -1501,20 +1501,20 @@ function mahout_build () {
 	fi
     done
 
-    BUILDFILE=${PWD}/.mahout-builds/${BLABEL}.${BTYPE}
+    BUILDFILE=${PWD}/.mahout-builds/${BLABEL}.${BUILDTYPE}
     
-    case $BTYPE in
+    case $BUILDTYPE in
 	tar)
-	    (cd ${BHOME}; tar cf ${BUILDFILE} ${BLABEL})
+	    (cd ${BHOME}; tar --create --file=${BUILDFILE} ${BLABEL})
 	    ;;
 	tar.gz)
-	    (cd ${BHOME}; tar cfz ${BUILDFILE} ${BLABEL})
+	    (cd ${BHOME}; tar --create --gzip --file=${BUILDFILE} ${BLABEL})
 	    ;;
 	tar.bz)
-	    (cd ${BHOME}; tar cfj ${BUILDFILE} ${BLABEL})
+	    (cd ${BHOME}; tar --create --bzip2 --file=${BUILDFILE} ${BLABEL})
 	    ;;
 	*)
-	    glog user.error "Invalid build type (BTYPE): [${BTYPE}] - must be one of (tar, tar.gz, tar.bz)"
+	    glog user.error "Invalid build target type (BUILDTYPE): [${BUILDTYPE}] - must be one of (tar, tar.gz, tar.bz)"
 	    ;;
     esac
     if [[ -d ${BHOME} ]]; then
