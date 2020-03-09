@@ -234,29 +234,20 @@ function mahout_init () {
     done
     echo "# Add additional configuration parameters for scripts after this" >> ${MO}
 
+    for sd in logs data temp builds; do
+	dir=${MAHOUTHOME}/.mahout-${sd}
+	if [ -d $dir ]; then
+	    glog user.debug "Directory [${dir}] already exists"
+	else
+	    glog user.warning "creating missing Mahout directory [${dir}]"
+	    mkdir -p $dir
+	fi
+    done
+	
     MAHOUTLOG=${MAHOUTHOME}/.mahout-logs
-    mkdir ${MAHOUTLOG}
-    
     MAHOUTCAP=${MAHOUTHOME}/.mahout-data
-    if [ -d ${MAHOUTCAP} ]; then
-	glog user.error "Capture directory MAHOUTCAP [${MAHOUTCAP}] already exists"
-	exit 1
-    else
-	mkdir ${MAHOUTCAP}
-	glog user.info "Setting up directory MAHOUTCAP [${MAHOUTCAP}]"
-    fi
     MAHOUTTMP=${MAHOUTHOME}/.mahout-temp
-    mkdir ${MAHOUTTMP}
-    
     MAHOUTBLD=${MAHOUTHOME}/.mahout-builds
-    if [ -d ${MAHOUTBLD} ]; then
-	glog user.error "Builds directory MAHOUTBLD [${MAHOUTBLD}] already exists"
-	exit 1
-    else
-	mkdir ${MAHOUTBLD}
-	glog user.info "Setting up directory MAHOUTBLD [${MAHOUTBLD}]"
-    fi
-    
     MAHOUTCTL=${MAHOUTHOME}/mahout.control
     if [ -e ${MAHOUTCTL} ]; then
 	glog user.error "Control file MAHOUTCTL=[${MAHOUTCTL}] already exists"
@@ -675,6 +666,17 @@ function mahout_capture () {
     # check the version in the database
     local DBVERSION=`get_mahout_version "${MAINDATABASE}"`
     glog user.info "capture: found version: ${DBVERSION}"
+
+    # ensure directories are present
+    for sd in logs data temp builds; do
+	dir=${PWD}/.mahout-${sd}
+	if [ -d $dir ]; then
+	    glog user.debug "Directory [${dir}] already exists"
+	else
+	    glog user.warning "creating missing Mahout directory [${dir}]"
+	    mkdir -p $dir
+	fi
+    done
 
     # Use pgcmp to check that the version in the database
     # matches... Note that it should match EXACTLY; this is not a
@@ -1207,6 +1209,16 @@ function mahout_install () {
 	glog user.info "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
 	rm -f ${SETUPQ}
     fi
+    # ensure directories are present
+    for sd in logs data temp builds; do
+	dir=${PWD}/.mahout-${sd}
+	if [ -d $dir ]; then
+	    glog user.debug "Directory [${dir}] already exists"
+	else
+	    glog user.warning "creating missing Mahout directory [${dir}]"
+	    mkdir -p $dir
+	fi
+    done
     
     local versioncontent=`mktemp -d $PWD/.mahout-temp/mahout-install-version-content.XXXXXXXXXXXX`
     local depfodder=$PWD/.mahout-temp/mahout-install-dependency-fodder
