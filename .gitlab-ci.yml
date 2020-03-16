@@ -17,10 +17,13 @@ variables:
   GIT_SUBMODULE_STRATEGY: recursive
   
 connect-test:
-  stage: build
+  stage: test
   image: postgres
   script:
   - export PGPASSWORD=$POSTGRES_PASSWORD
+  - export PGUSER=$POSTGRES_USER
+  - export PGPORT=5432
+  - export PGHOST=postgres
   - which psql
   - psql -h "postgres" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 'OK' AS status;"
   - psql -h "postgres" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "show port;"
