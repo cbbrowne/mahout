@@ -7,12 +7,12 @@ variables:
   POSTGRES_PASSWORD: ""
   POSTGRES_HOST_AUTH_METHOD: trust
   ARTIFACT_TARGET: /tmp/artifacts
-  PGCMPHOME: /tmp/pgcmp
   PGHOST: postgres
   REGUSER: postgres
   SUPERUSER: postgres
   PGPORT: 5432
   MAHOUTHOME: /builds/cbbrowne/mahout
+  PGCMPHOME: /builds/cbbrowne/mahout/pgcmp
   PGBINDIR: /usr/lib/postgresql/12/bin
 
 build1:
