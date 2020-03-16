@@ -1,0 +1,3 @@
+[submodule "pgcmp"]
+	path = pgcmp
+	url = https://gitlab.com/cbbrowne/pgcmp
