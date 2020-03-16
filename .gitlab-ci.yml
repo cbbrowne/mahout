@@ -24,7 +24,7 @@ after_script:
 build1:
   stage: build
   script:
-    - which psql
+    - echo $PATH
     - gem install org-ruby
     - git clone https://gitlab.com/cbbrowne/pgcmp.git $PGCMPHOME
     - (cd $PGCMPHOME; make all)
