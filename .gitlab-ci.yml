@@ -4,8 +4,7 @@ services:
 variables:
   POSTGRES_DB: nice_marmot
   POSTGRES_USER: runner
-  POSTGRES_PASSWORD: "apostgrespassword"
-  POSTGRES_HOST_AUTH_METHOD: password
+  POSTGRES_HOST_AUTH_METHOD: trust
   ARTIFACT_TARGET: /tmp/artifacts
   PGHOST: postgres
   REGUSER: postgres
@@ -20,7 +19,6 @@ connect-test:
   stage: test
   image: postgres
   script:
-    - export PGPASSWORD=$POSTGRES_PASSWORD
     - which psql
     - psql -h "postgres" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 'OK' AS status;"
     - psql -h "postgres" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "show port;"
