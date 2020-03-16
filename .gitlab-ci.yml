@@ -6,9 +6,8 @@ variables:
   POSTGRES_USER: runner
   POSTGRES_PASSWORD: runner
   ARTIFACT_TARGET: /tmp/artifacts
-  PGHOST: postgres
-  REGUSER: postgres
-  SUPERUSER: postgres
+  REGUSER: runner
+  SUPERUSER: runner
   PGPORT: 5432
   MAHOUTHOME: /builds/cbbrowne/mahout
   PGCMPHOME: /builds/cbbrowne/mahout/pgcmp
