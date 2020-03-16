@@ -13,7 +13,7 @@ variables:
   SUPERUSER: postgres
   PGPORT: 5432
   MAHOUTHOME: /builds/cbbrowne/mahout
-  PGBINDIR: /usr/bin
+  PGBINDIR: /usr/lib/postgresql/12/bin
 
 build1:
   stage: build
