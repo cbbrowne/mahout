@@ -13,7 +13,7 @@ variables:
   SUPERUSER: postgres
   PGPORT: 5432
   MAHOUTHOME: /builds/cbbrowne/mahout 
-  PGBINDIR: something
+  PGBINDIR: /opt/gitlab/bin
 
 after_script:
   - echo "After script section"
@@ -24,6 +24,7 @@ after_script:
 build1:
   stage: build
   script:
+    - which psql
     - gem install org-ruby
     - git clone https://gitlab.com/cbbrowne/pgcmp.git $PGCMPHOME
     - (cd $PGCMPHOME; make all)
