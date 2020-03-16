@@ -32,8 +32,15 @@ connect-test:
   - psql -d "host=postgres user=runner port=5432 dbname=${POSTGRES_DB}" -c "select 'OK' as query_from_connstring;"
   - ls -l /var/run/postgresql
 
+
 build1:
   stage: build
+  script:
+    - gem install org-ruby
+    - make all
+  
+functional-test:
+  stage: test
   image: postgres
   script:
     - export PGPASSWORD=$POSTGRES_PASSWORD
