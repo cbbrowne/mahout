@@ -15,12 +15,6 @@ variables:
   MAHOUTHOME: /builds/cbbrowne/mahout 
   PGBINDIR: /opt/gitlab/bin
 
-after_script:
-  - echo "After script section"
-  - echo "For example you might do some cleanup here"
-  - echo "PWD is ${PWD}"
-  - which psql
-
 build1:
   stage: build
   script:
