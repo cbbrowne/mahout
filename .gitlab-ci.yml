@@ -16,6 +16,18 @@ variables:
   PGBINDIR: /usr/lib/postgresql/12/bin
   GIT_SUBMODULE_STRATEGY: recursive
   
+connect-test:
+  image: postgres
+  script:
+  - export PGPASSWORD=$POSTGRES_PASSWORD
+  - which psql
+  - psql -h "postgres" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 'OK' AS status;"
+  - psql -h "postgres" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "show port;"
+  - psql -h "postgres" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "show config_file;"
+  - psql -h "postgres" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "show unix_socket_directories;"
+  - psql -d "host=postgres user=runner port=5432 dbname=${POSTGRES_DB}" -c "select 'OK' as query_from_connstring;"
+  - ls -l /var/run/postgresql
+
 build1:
   stage: build
   image: postgres
