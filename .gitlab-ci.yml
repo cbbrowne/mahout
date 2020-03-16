@@ -14,10 +14,14 @@ variables:
   MAHOUTHOME: /builds/cbbrowne/mahout
   PGCMPHOME: /builds/cbbrowne/mahout/pgcmp
   PGBINDIR: /usr/lib/postgresql/12/bin
-
+  GIT_SUBMODULE_STRATEGY: recursive
+  
 build1:
   stage: build
   image: postgres
   script:
     - (cd test; ./test-build-stuff.sh)
     
+before_script:
+  - apk --no-cache add git
+  - git submodule update --recursive --remote
