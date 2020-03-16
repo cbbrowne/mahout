@@ -4,8 +4,8 @@ services:
 variables:
   POSTGRES_DB: nice_marmot
   POSTGRES_USER: runner
-  POSTGRES_PASSWORD: ""
-  POSTGRES_HOST_AUTH_METHOD: trust
+  POSTGRES_PASSWORD: "apostgrespassword"
+  POSTGRES_HOST_AUTH_METHOD: password
   ARTIFACT_TARGET: /tmp/artifacts
   PGHOST: postgres
   REGUSER: postgres
