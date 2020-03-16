@@ -18,12 +18,7 @@ build1:
   stage: build
   script:
     - echo $PATH
-    - for p in $(echo $PATH | sed 's/:/ /g'); do
-        if [ -e ${p}/psql ]; then
-           export PGBINDIR=$p
-           echo "found psql in ${p}"
-        fi
-      done
+    - for p in $(echo $PATH | sed 's/:/ /g'); do echo $p; ls $p | grep psql; done
     - gem install org-ruby
     - git clone https://gitlab.com/cbbrowne/pgcmp.git $PGCMPHOME
     - (cd $PGCMPHOME; make all)
