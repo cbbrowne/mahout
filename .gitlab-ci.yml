@@ -21,7 +21,3 @@ build1:
   image: postgres
   script:
     - (cd test; ./test-build-stuff.sh)
-    
-before_script:
-  - apk --no-cache add git
-  - git submodule update --recursive --remote
