@@ -9,3 +9,5 @@ for p in $(echo $PATH | sed 's/:/ /g'); do
 	fi
     fi
 done
+
+which psql
