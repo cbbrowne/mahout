@@ -12,13 +12,13 @@ variables:
   REGUSER: postgres
   SUPERUSER: postgres
   PGPORT: 5432
-  MAHOUTHOME: /builds/cbbrowne/mahout 
+  MAHOUTHOME: /builds/cbbrowne/mahout
+  PGBINDIR: /usr/local/bin
 
 build1:
   stage: build
   script:
     - echo $PATH
-    - for p in $(echo $PATH | sed 's/:/ /g'); do echo $p; ls $p | grep psql; done
     - gem install org-ruby
     - git clone https://gitlab.com/cbbrowne/pgcmp.git $PGCMPHOME
     - (cd $PGCMPHOME; make all)
