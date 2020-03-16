@@ -17,6 +17,7 @@ variables:
 
 build1:
   stage: build
+  image: postgres
   script:
     - ./test/find-psql.sh
     - gem install org-ruby
