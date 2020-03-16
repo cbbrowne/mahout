@@ -18,7 +18,7 @@ variables:
 build1:
   stage: build
   script:
-    - echo $PATH
+    - ./test/find-psql.sh
     - gem install org-ruby
     - git clone https://gitlab.com/cbbrowne/pgcmp.git $PGCMPHOME
     - (cd $PGCMPHOME; make all)
