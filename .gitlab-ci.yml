@@ -19,9 +19,6 @@ build1:
   stage: build
   image: postgres
   script:
-    - ./test/find-psql.sh
-    - gem install org-ruby
     - git clone https://gitlab.com/cbbrowne/pgcmp.git $PGCMPHOME
-    - (cd $PGCMPHOME; make all)
     - (cd test; ./test-build-stuff.sh)
     
