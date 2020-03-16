@@ -21,4 +21,4 @@ for p in /usr/lib/postgresql/11/bin /usr/lib/postgresql/12/bin ; do
     fi
 done
 
-
+find / -name psql
