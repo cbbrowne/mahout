@@ -17,6 +17,7 @@ variables:
   GIT_SUBMODULE_STRATEGY: recursive
   
 connect-test:
+  stage: build
   image: postgres
   script:
   - export PGPASSWORD=$POSTGRES_PASSWORD
