@@ -36,4 +36,8 @@ build1:
   stage: build
   image: postgres
   script:
+    - export PGPASSWORD=$POSTGRES_PASSWORD
+    - export PGUSER=$POSTGRES_USER
+    - export PGPORT=5432
+    - export PGHOST=postgres
     - (cd test; ./test-build-stuff.sh)
