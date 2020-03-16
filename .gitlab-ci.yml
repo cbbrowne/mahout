@@ -1,0 +1,29 @@
+services:
+  - postgres:12.2-alpine
+
+variables:
+  POSTGRES_DB: nice_marmot
+  POSTGRES_USER: runner
+  POSTGRES_PASSWORD: ""
+  POSTGRES_HOST_AUTH_METHOD: trust
+  ARTIFACT_TARGET: /tmp/artifacts
+  PGCMPHOME: /tmp/pgcmp
+  PGHOST: postgres
+  REGUSER: postgres
+  SUPERUSER: postgres
+  PGPORT: 5432
+  MAHOUTHOME: PGBINDIR=
+
+after_script:
+  - echo "After script section"
+  - echo "For example you might do some cleanup here"
+  - echo "PWD is ${PWD}"
+  - which psql
+
+build1:
+  stage: build
+  script:
+    - gem install org-ruby
+    - git clone git@gitlab.com:cbbrowne/pgcmp.git $PGCMPHOME
+    - (cd $PGCMPHOME; make all)
+    
