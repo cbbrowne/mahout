@@ -14,6 +14,12 @@ variables:
   PGBINDIR: /usr/lib/postgresql/12/bin
   GIT_SUBMODULE_STRATEGY: recursive
   
+build1:
+  stage: build
+  script:
+    - gem install org-ruby
+    - make all
+  
 connect-test:
   stage: test
   image: postgres
@@ -27,12 +33,6 @@ connect-test:
     - psql -d "host=postgres user=runner port=5432 dbname=${POSTGRES_DB}" -c "select 'OK' as query_from_connstring;"
     - ls -l /var/run/postgresql
 
-build1:
-  stage: build
-  script:
-    - gem install org-ruby
-    - make all
-  
 functional-test:
   stage: test
   image: postgres
@@ -41,4 +41,5 @@ functional-test:
     - export PGUSER=$POSTGRES_USER
     - export PGPORT=5432
     - export PGHOST=postgres
-    - (cd test; ./test-build-stuff.sh)
+    - echo "running tests"
+    - (cd test; PGUSER=$POSTGRES_USER ./test-build-stuff.sh)
