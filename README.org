@@ -322,6 +322,11 @@ $ slonik .mahout-temp/mahout-ddl-script-1.1.slonik
            of the /previous/ step.
          - A ~MAHOUTSEARCHPATH~ value will be attached at the start
            of each DDL/DML step.
+    - MAHOUTOMITPG :: If ~true~, then all use of ~pgcmp~ will be
+                      omitted, as well as database activities in the
+                      ~mahout build~ step.  The purpose of this option
+                      is to support the case where you cannot have a
+                      PostgreSQL database in the build environment
     - MAHOUTNODETYPE :: indicates if this is a development environment
                         (where pgcmp files are automatically
                         generated), or production (or QA) where pgcmp
