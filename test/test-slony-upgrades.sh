@@ -76,7 +76,7 @@ function glog () {
 	    ;;
     esac
     if [ -f ${MAHOUTLOG} ]; then
-	when=`date --rfc-3339=seconds`
+	when=$(date --rfc-3339=seconds)
 	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}
     fi
 }
@@ -89,7 +89,7 @@ kill_all_slons ()
     if [ -d ${slonydir}/pid ]; then
 	for pidfile in ${slonydir}/pid/node[1-6].pid; do
 	    if [ -f $pidfile ]; then
-		pid=`cat $pidfile`
+		pid=$(cat $pidfile)
 		glog user.notice "Shutting down slon based on $pidfile - $pid"
 	    fi
 	done
@@ -121,8 +121,8 @@ cluster name=${SLONYCLUSTER};
 " > $slonikpreamble
 
     for nodeinfo in origin:1 rep2:2 rep3:3 rep4:4: rep5:5 rep6:6; do
-	nodenum=`echo $nodeinfo | cut -d : -f 2` 
-	nodedb=`echo $nodeinfo | cut -d : -f 1`
+	nodenum=$(echo $nodeinfo | cut -d : -f 2) 
+	nodedb=$(echo $nodeinfo | cut -d : -f 1)
 	conffile=${slonydir}/slon.conf.${nodenum}
 	glog user.info "Set up slon.conf for node $nodenum - ${conffile}"
 	echo "### Slony conf for node ${nodenum}
@@ -162,11 +162,11 @@ function store_paths () {
 include <${slonikpreamble}>;
 " > $storepaths
     for nodeinfo in origin:1 rep2:2 rep3:3 rep4:4: rep5:5 rep6:6; do
-	nodenum=`echo $nodeinfo | cut -d : -f 2` 
-	nodedb=`echo $nodeinfo | cut -d : -f 1` 
+	nodenum=$(echo $nodeinfo | cut -d : -f 2) 
+	nodedb=$(echo $nodeinfo | cut -d : -f 1) 
 	for nodeinfo2 in origin:1 rep2:2 rep3:3 rep4:4: rep5:5 rep6:6; do
-	    nodenum2=`echo $nodeinfo2 | cut -d : -f 2` 
-	    nodedb2=`echo $nodeinfo2 | cut -d : -f 1` 
+	    nodenum2=$(echo $nodeinfo2 | cut -d : -f 2) 
+	    nodedb2=$(echo $nodeinfo2 | cut -d : -f 1) 
 	    if [ $nodenum -ne $nodenum2 ]; then
 		echo "store path (server=$nodenum2, client=$nodenum, conninfo='${DBCLUSTER}/${nodedb2}');" >> $storepaths
 	    else

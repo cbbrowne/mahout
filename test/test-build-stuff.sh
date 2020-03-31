@@ -83,7 +83,7 @@ function glog () {
 	    ;;
     esac
     if [ -f ${MAHOUTLOG} ]; then
-	when=`date --rfc-3339=seconds`
+	when=$(date --rfc-3339=seconds)
 	echo "${when} ${level} mahout ${notice}" >> ${MAHOUTLOG}
     fi
 }
