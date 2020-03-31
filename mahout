@@ -625,24 +625,17 @@ function action_start () {
     local actiontype=$3
     local actionsource=$4
     local amd5=$5
-    case $MAHOUTOMITPG in
-	true)
-	    glog user.info "MAHOUTOMITPG is true; not setting up mahout schema"
-	    ;;
-	*)
-	    local asquery="insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${version}', clock_timestamp(), '${action}', '${actiontype}', '${actionsource}', '${amd5}');"
+    local asquery="insert into \"${MAHOUTSCHEMA}\".action_log (version, action_start, action, action_type, action_source, action_md5) values ('${version}', clock_timestamp(), '${action}', '${actiontype}', '${actionsource}', '${amd5}');"
 
-	    $PGBINDIR/psql -d ${MAINDATABASE} -c "${asquery}" > /dev/null 2>&1
+    $PGBINDIR/psql -d ${MAINDATABASE} -c "${asquery}" > /dev/null 2>&1
 
-	    local retcode=$?
-	    if [ $retcode -ne 0 ]; then
-		glog user.error "Unable to record action logging for version [${version}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
-		exit 1
-	    else
-		glog user.debug "Recorded action logging for version [${version}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
-	    fi
-	    ;;
-    esac
+    local retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Unable to record action logging for version [${version}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+	exit 1
+    else
+	glog user.debug "Recorded action logging for version [${version}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+    fi
 }
 
 function action_end () {
@@ -655,22 +648,15 @@ function action_end () {
     
     local asquery="update \"${MAHOUTSCHEMA}\".action_log set result = 'completed', success='${success}', action_end=clock_timestamp() where version='${version}' and action='${action}' and action_type='${actiontype}' and action_source='${actionsource}' and action_md5 = '${amd5}' and action_end is null;"
 
-    case $MAHOUTOMITPG in
-	true)
-	    glog user.info "MAHOUTOMITPG is true; not setting up mahout schema"
-	    ;;
-	*)
-	    $PGBINDIR/psql -d ${MAINDATABASE} -c "${asquery}"  > /dev/null 2>&1
+    $PGBINDIR/psql -d ${MAINDATABASE} -c "${asquery}"  > /dev/null 2>&1
 
-	    local retcode=$?
-	    if [ $retcode -ne 0 ]; then
-		glog user.error "Unable to complete action logging for version [${version}]/action[${action}]/actiontype[${actiontype}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
-		exit 1
-	    else
-		glog user.debug "Completed action logging for version [${version}]/source[${asource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
-	    fi
-	    ;;
-    esac
+    local retcode=$?
+    if [ $retcode -ne 0 ]; then
+	glog user.error "Unable to complete action logging for version [${version}]/action[${action}]/actiontype[${actiontype}]/source[${actionsource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+	exit 1
+    else
+	glog user.debug "Completed action logging for version [${version}]/source[${asource}]/md5sum[${amd5}] against database [${MAINDATABASE}]"
+    fi
 }
 
 # Dump current schema so that we can check that it is a good match
@@ -802,7 +788,14 @@ function mahout_capture () {
 			glog user.notice "apply DDL Script ${sqlscript}"
 			md5sum=$(md5sum < ${sqlscript})
 			cat ${sqlscript} | md5sum > ${sqlscript}.md5sum
-			action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
+			case $MAHOUTOMITPG in
+			    true)
+				glog user.info "mahout_pgcmp MAHOUTOMITPG is true; do not capture action"
+				;;
+			    *)
+				action_start $propversion capture "DDL script" ${sqlscript} "${md5sum}"
+				;;
+			esac
 			echo "create temp table t_starting_locks as select n.nspname, c.relname, l.mode, l.granted from pg_catalog.pg_class c, pg_catalog.pg_namespace n, pg_catalog.pg_locks l where c.oid = l.relation and c.relnamespace = n.oid and nspname not in ('pg_catalog') and nspname not like 'pg_toast%' and nspname not like 'pg_temp%';" > ${TEMPSQLFILE}
 			cat ${sqlscript} >> ${TEMPSQLFILE}
 			rc=$?
@@ -855,7 +848,14 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			local predmlcmp=$(mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX)
 			local postdmlcmp=$(mktemp /tmp/mahout-capture-pre-dml.XXXXXXXXXXXXXXXX)
 			# Make sure that DML does not modify the schema
-			action_start ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}"
+			case $MAHOUTOMITPG in
+			    true)
+				glog user.info "mahout_pgcmp MAHOUTOMITPG is true; do not capture action"
+				;;
+			    *)
+				action_start ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}"
+				;;
+			esac
 			pgcmp_dump_current pre-dml $predmlcmp ${MAINDATABASE}
 
 			case $MAHOUTOMITPG in
@@ -876,7 +876,14 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			pgcmp_dump_current post-dml $postdmlcmp ${MAINDATABASE}
 			mahout_pgcmp $predmlcmp $postdmlcmp pre-dml post-dml false
 			# PGBINDIR=${PGBINDIR} PGURI=${COMPARISONDATABASE} PGCMPINPUT1=${predmlcmp} PGCMPINPUT2=${postdmlcmp} PGCLABEL1=pre-dml PGCLABEL2=post-dml ${PGCMPHOME}/pgcmp > /dev/null 2>&1
-			action_end ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}" t
+			case $MAHOUTOMITPG in
+			    true)
+				glog user.info "MAHOUTOMITPG is true; not setting up mahout schema"
+				;;
+			    *)
+				action_end ${propversion} "capture" "dml script" "${dmlscript}" "${md5sum}" t
+				;;
+			esac
 			rm $predmlcmp $postdmlcmp
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^unix ") -eq 1 ]]; then
@@ -885,7 +892,14 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			local preunixcmp=$(mktemp /tmp/mahout-capture-pre-unix.XXXXXXXXXXXXXXXX)
 			local postunixcmp=$(mktemp /tmp/mahout-capture-pre-unix.XXXXXXXXXXXXXXXX)
 			cat ${unixcommand} | md5sum > ${unixcommand}.md5sum
-			action_start ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}"
+			case $MAHOUTOMITPG in
+			    true)
+				glog user.info "mahout_pgcmp MAHOUTOMITPG is true; do not capture action"
+				;;
+			    *)
+				action_start ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}"
+				;;
+			esac
 			pgcmp_dump_current pre-unix ${preunixcmp}  ${MAINDATABASE}
 			case $MAHOUTOMITPG in
 			    true)
@@ -898,14 +912,28 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 			esac
 			mahout_pgcmp $preunixcmp $postunixcmp pre-unix post-unix false
 			rm $preunixcmp $postunixcmp
-			action_end ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}" t
+			case $MAHOUTOMITPG in
+			    true)
+				glog user.info "MAHOUTOMITPG is true; not setting up mahout schema"
+				;;
+			    *)
+				action_end ${propversion} "capture" "unix script" "${unixcommand}" "${md5sum}" t
+				;;
+			esac
 		    fi
 		    if [[ $(echo ${line} | egrep -c "^psqltest ") -eq 1 ]]; then
 			local testscript=$(echo ${line} | cut -d " " -f 2)
 			echo "apply SQL test script ${testscript}"
 			md5sum=$(md5sum < ${testscript})
 			echo ${md5sum} > ${testscript}.md5sum
-			action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
+			case $MAHOUTOMITPG in
+			    true)
+				glog user.info "mahout_pgcmp MAHOUTOMITPG is true; do not capture action"
+				;;
+			    *)
+				action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
+				;;
+			esac
 			case $MAHOUTOMITPG in
 			    true)
 				glog user.info "pgcmp_dump_current MAHOUTOMITPG is true; not dumping pgcmp data"
@@ -1002,7 +1030,14 @@ create temp table t_locks_acquired as select nspname, relname, mode from t_endin
 				md5sum=$(md5sum < ${testscript})
 				echo ${md5sum} > ${testscript}.md5sum
 				tslog=${testscript}.${propversion}.log
-				action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
+				case $MAHOUTOMITPG in
+				    true)
+					glog user.info "mahout_pgcmp MAHOUTOMITPG is true; do not capture action"
+					;;
+				    *)
+					action_start ${propversion} "capture" "psql test script" "${testscript}" "${md5sum}"
+					;;
+				esac
 				case $MAHOUTOMITPG in
 				    true)
 					glog user.info "pgcmp_dump_current MAHOUTOMITPG is true; not dumping pgcmp data"
