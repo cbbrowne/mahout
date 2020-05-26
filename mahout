@@ -145,7 +145,6 @@ function mahout_pgcmp () {
 	    esac
 	    ;;
     esac
-    
 }
 function mahout_pgcmp_nodeprobs () {
     local IFILE1=$1
@@ -1563,8 +1562,15 @@ function mahout_attach () {
     if [[ -e ${CMPDATA} ]]; then
 	glog user.info "Found comparison data for version - [${CMPDATA}]"
     else
-	glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
-	exit 1
+	case $MAHOUTOMITPG in
+	    true)
+		glog user.info "mahout_pgcmp MAHOUTOMITPG is true; not doing pgcmp"
+		;;
+	    *)
+		glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
+		exit 1
+		;;
+	esac
     fi
     
     # Verify that the database does NOT have Mahout installed, e.g. -
