@@ -1539,85 +1539,6 @@ function mahout_history () {
     rm -rf ${depfodder} ${dependencies} ${versionorder} ${versioncontent}
 }
 
-function mahout_attach () {
-    local PRODVERSION=${PARM1}
-    local CMPDATA
-    # check that we're in a Mahout directory
-    local INMAHOUT
-    local PGCMPOUTPUT
-
-    INMAHOUT=$(in_mahout_home)
-    if [[ ${INMAHOUT} != 0 ]]; then
-	glog user.error "attach: not in mahout directory - ${INMAHOUT}"
-	exit 1
-    fi
-    
-    # acquire configuration from mahout.conf
-    read_mahout_config
-    glog user.info "Attaching version [${PRODVERSION}] changes to database MAINDATABASE=[${MAINDATABASE}]"
-
-    # Verify that the version PRODVERSION matches against a valid
-    # version, e.g. - one where there is a dump found in .mahout-data
-    CMPDATA=${PWD}/.mahout-data/${PRODVERSION}.pgcmp
-    if [[ -e ${CMPDATA} ]]; then
-	glog user.info "Found comparison data for version - [${CMPDATA}]"
-    else
-	case $MAHOUTOMITPG in
-	    true)
-		glog user.info "mahout_pgcmp MAHOUTOMITPG is true; not doing pgcmp"
-		;;
-	    *)
-		glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
-		exit 1
-		;;
-	esac
-    fi
-    
-    # Verify that the database does NOT have Mahout installed, e.g. -
-    # no Mahout schema
-    query="select count(1) from pg_catalog.pg_namespace where nspname = '${MAHOUTSCHEMA}';"
-    scount=$($PGBINDIR/psql -d ${MAINDATABASE} -c "${query}" -qAt)
-    if [[ ${scount} != 0 ]]; then
-	glog user.error "attach: main database already has ${MAHOUTSCHEMA} schema - apparently already mahout-ized"
-	exit 1
-    fi
-    
-    # Most likely needs to have a pgcmp "expected differences" file to
-    # indicate what differences are acceptable; need to be quite
-    # strict about this!
-
-    # run pgcmp to see differences versus the specified version
-    # any unexpected differences lead to failing the install
-    LABEL="production-${PRODVERSION}"
-    CAPTUREFILE=${PWD}/.mahout-temp/attach-${PRODVERSION}.pgcmp
-    pgcmp_dump_current "${LABEL}" ${CAPTUREFILE} ${MAINDATABASE}
-
-    # Now, run pgcmp against the two schemas:
-    PGCMPWORK=$(mktemp -d $PWD/.mahout-temp/mahout-attach-pgcmp-work.XXXXXXXXXXX)
-    PGCWORKDIR=$PGCMPWORK mahout_pgcmp  $CAPTUREFILE .mahout-data/${PRODVERSION}.pgcmp $LABEL $PRODVERSION false
-
-    # But if there are no differences, then we need to add mahout
-    # schema as is added by mahout install/init, and indicate
-    # that it was marked as OK with the specified version
-    local SETUPQ=$PWD/.mahout-temp/mahout-attach-setup
-    mahout_initialize_schema > ${SETUPQ}
-    echo " insert into action_log (action_start, action_end, action, version, action_type, action_source, result, success) values (clock_timestamp(), clock_timestamp(), 'attach mahout', '${PRODVERSION}', 'attach', 'mahout', 'initialized', 't');
-    insert into version_log (version, install_start, install_end) values ('${PRODVERSION}', clock_timestamp(), clock_timestamp());
-  commit;" >> ${SETUPQ}
-
-    $PGBINDIR/psql -d ${MAINDATABASE} -f ${SETUPQ} > /dev/null 2>&1
-    retcode=$?
-    if [ $retcode -ne 0 ]; then
-	glog user.error "Unable to setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
-	exit 1
-    else
-	glog user.notice "Setup mahout schema ${MAHOUTSCHEMA} in database [${MAINDATABASE}]"
-	rm -f ${SETUPQ}
-    fi
-    glog user.notice "mahout attach completed for version [${PRODVERSION}] in database [${MAINDATABASE}]"
-    summary attach
-}
-
 function mahout_changes () {
     echo "changes Not implemented yet"
     exit 1    
@@ -1689,13 +1610,17 @@ function mahout_attach () {
     if [[ -e ${CMPDATA} ]]; then
 	glog user.notice "Found comparison data for version - [${CMPDATA}]"
     else
-	glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
-	exit 1
+	case $MAHOUTOMITPG in
+	    true)
+		glog user.info "mahout_pgcmp MAHOUTOMITPG is true; not doing pgcmp"
+		;;
+	    *)
+		glog user.error "No comparison data found for version [${PRODVERSION}] - [${CMPDATA}]"
+		exit 1
+		;;
+	esac
     fi
 
-    # Need to rummage through the cluster to get all the Database URIs for nodes
-    
-    
     # Verify that every database does NOT have Mahout installed, e.g. -
     # no Mahout schema
     query="select count(1) from pg_catalog.pg_namespace where nspname = '${MAHOUTSCHEMA}';"
